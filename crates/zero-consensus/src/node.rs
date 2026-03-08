@@ -401,7 +401,7 @@ impl Node {
 
         // Log new validators
         for v in new_committee.validators() {
-            if old_keys.get(&v.public_key).is_none() {
+            if !old_keys.contains_key(&v.public_key) {
                 info!(
                     new_index = v.index,
                     pubkey = ?&v.public_key[..8],

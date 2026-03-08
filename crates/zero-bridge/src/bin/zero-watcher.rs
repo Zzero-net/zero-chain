@@ -22,7 +22,7 @@ use zero_bridge::rpc::EthRpc;
 use zero_bridge::watcher::{VaultWatcher, WatcherConfig};
 
 /// Watcher-specific config wrapping the shared bridge config.
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(serde::Deserialize, serde::Serialize, Default)]
 struct FullWatcherConfig {
     /// Shared bridge config (vaults, etc.)
     bridge: BridgeConfig,
@@ -55,15 +55,6 @@ impl Default for WatcherSettings {
             auto_pause_on_elevated: true,
             poll_interval_ms: 5000,
             pause_key_file: "watcher_pause.key".into(),
-        }
-    }
-}
-
-impl Default for FullWatcherConfig {
-    fn default() -> Self {
-        Self {
-            bridge: BridgeConfig::default(),
-            watcher: WatcherSettings::default(),
         }
     }
 }

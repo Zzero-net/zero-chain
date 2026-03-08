@@ -65,11 +65,11 @@ impl Dag {
 
         // Check for equivocation: same author + same round but different digest
         let round_authors = self.rounds.entry(event.round).or_default();
-        if let Some(existing_ref) = round_authors.get(&event.author) {
-            if existing_ref.digest != block_ref.digest {
-                // Equivocation detected — reject the new event
-                return InsertResult::Equivocation(event.author);
-            }
+        if let Some(existing_ref) = round_authors.get(&event.author)
+            && existing_ref.digest != block_ref.digest
+        {
+            // Equivocation detected — reject the new event
+            return InsertResult::Equivocation(event.author);
         }
 
         round_authors.insert(event.author, block_ref);
@@ -139,10 +139,10 @@ impl Dag {
         }
 
         // Update last finalized round
-        if let Some(max_finalized) = newly_finalized.iter().map(|r| r.round).max() {
-            if max_finalized > self.last_finalized_round {
-                self.last_finalized_round = max_finalized;
-            }
+        if let Some(max_finalized) = newly_finalized.iter().map(|r| r.round).max()
+            && max_finalized > self.last_finalized_round
+        {
+            self.last_finalized_round = max_finalized;
         }
 
         // Prune old rounds that are fully finalized

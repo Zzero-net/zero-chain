@@ -321,7 +321,7 @@ impl EthRpc {
         }
 
         let tx_hash_hex = resp.result.ok_or(RpcError::BadResponse)?;
-        parse_hex_bytes32(&tx_hash_hex).map_err(|e| RpcError::HexDecode(e))
+        parse_hex_bytes32(&tx_hash_hex).map_err(RpcError::HexDecode)
     }
 
     /// Get the transaction count (nonce) for an address.
@@ -384,6 +384,7 @@ impl EthRpc {
 
     /// Submit a signed release transaction to the vault contract.
     /// Returns the transaction hash.
+    #[allow(clippy::too_many_arguments)]
     pub async fn send_release(
         &self,
         chain_id: u64,
@@ -496,7 +497,7 @@ impl EthRpc {
         }
 
         let tx_hash_hex = resp.result.ok_or(RpcError::BadResponse)?;
-        parse_hex_bytes32(&tx_hash_hex).map_err(|e| RpcError::HexDecode(e))
+        parse_hex_bytes32(&tx_hash_hex).map_err(RpcError::HexDecode)
     }
 }
 
@@ -707,7 +708,7 @@ pub fn encode_release_calldata(
     // Dynamic bytes: data (right-padded to 32-byte boundary)
     data.extend_from_slice(signatures);
     let padding = (32 - (signatures.len() % 32)) % 32;
-    data.extend(std::iter::repeat(0u8).take(padding));
+    data.extend(std::iter::repeat_n(0u8, padding));
 
     data
 }

@@ -100,6 +100,7 @@ impl ZeroServer {
     }
 
     /// Check IP-based rate limit. Returns Ok(()) or Status::resource_exhausted.
+    #[allow(clippy::result_large_err)]
     fn check_ip_rate<T>(&self, request: &Request<T>) -> Result<(), Status> {
         if let Some(addr) = request.remote_addr() {
             let ip = addr.ip();
@@ -116,6 +117,7 @@ impl ZeroServer {
     }
 
     /// Check per-account rate limit. Returns Ok(()) or Status::resource_exhausted.
+    #[allow(clippy::result_large_err)]
     fn check_account_rate(&self, account: &[u8; 32]) -> Result<(), Status> {
         let now = now_ms();
         if let Err(rate) = self.account_limiter.lock().check(account, now) {

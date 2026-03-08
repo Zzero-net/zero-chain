@@ -560,7 +560,7 @@ impl BridgeService {
         guardians[my_index] = self.signer.address;
 
         let mut peer_idx = 0;
-        for i in 0..3 {
+        for (i, guardian) in guardians.iter_mut().enumerate() {
             if i == my_index {
                 continue;
             }
@@ -571,7 +571,7 @@ impl BridgeService {
             if bytes.len() != 20 {
                 return Err(anyhow::anyhow!("peer eth_address must be 20 bytes"));
             }
-            guardians[i].copy_from_slice(&bytes);
+            guardian.copy_from_slice(&bytes);
             peer_idx += 1;
         }
 
@@ -608,7 +608,7 @@ impl BridgeService {
         pubkeys[my_index] = my_pubkey;
 
         let mut peer_idx = 0;
-        for i in 0..3 {
+        for (i, pubkey) in pubkeys.iter_mut().enumerate() {
             if i == my_index {
                 continue;
             }
@@ -618,7 +618,7 @@ impl BridgeService {
             if bytes.len() != 32 {
                 return Err(anyhow::anyhow!("peer ed25519_pubkey must be 32 bytes"));
             }
-            pubkeys[i].copy_from_slice(&bytes);
+            pubkey.copy_from_slice(&bytes);
             peer_idx += 1;
         }
 
