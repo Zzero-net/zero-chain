@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -6,16 +7,45 @@ use parking_lot::{Mutex, RwLock};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
-use tracing::info;
+use tracing::{info, warn};
 
 use zero_consensus::Node;
-use zero_storage::{BridgeOp, TransferExecutor};
+use zero_storage::{BridgeOp, RateLimiter, TransferExecutor};
 use zero_types::Transfer;
 
 use crate::proto::{
     zero_service_server::ZeroService,
     *,
 };
+
+/// Per-IP rate limiter: sliding 1-second window, rejects above threshold.
+struct IpRateLimiter {
+    windows: HashMap<IpAddr, (u64, u32)>,
+    max_per_sec: u32,
+}
+
+impl IpRateLimiter {
+    fn new(max_per_sec: u32) -> Self {
+        Self { windows: HashMap::new(), max_per_sec }
+    }
+
+    fn check(&mut self, ip: IpAddr, now_ms: u64) -> Result<(), u32> {
+        let entry = self.windows.entry(ip).or_insert((now_ms, 0));
+        if now_ms >= entry.0 + 1000 {
+            entry.0 = now_ms;
+            entry.1 = 0;
+        }
+        if entry.1 >= self.max_per_sec {
+            return Err(entry.1);
+        }
+        entry.1 += 1;
+        Ok(())
+    }
+
+    fn cleanup(&mut self, now_ms: u64) {
+        self.windows.retain(|_, (start, _)| now_ms < *start + 10_000);
+    }
+}
 
 /// Tracks bridge operations for status queries.
 #[derive(Debug, Clone)]
@@ -38,6 +68,10 @@ pub struct ZeroServer {
     start_time: Instant,
     peer_count: u32,
     bridge_ops: Mutex<HashMap<String, BridgeOperation>>,
+    /// Per-account rate limiter (100 tx/sec/account).
+    account_limiter: Mutex<RateLimiter>,
+    /// Per-IP rate limiter (1000 req/sec/IP).
+    ip_limiter: Mutex<IpRateLimiter>,
 }
 
 fn now_ms() -> u64 {
@@ -59,7 +93,36 @@ impl ZeroServer {
             start_time: Instant::now(),
             peer_count,
             bridge_ops: Mutex::new(HashMap::new()),
+            account_limiter: Mutex::new(RateLimiter::new()),
+            ip_limiter: Mutex::new(IpRateLimiter::new(1000)),
         }
+    }
+
+    /// Check IP-based rate limit. Returns Ok(()) or Status::resource_exhausted.
+    fn check_ip_rate<T>(&self, request: &Request<T>) -> Result<(), Status> {
+        if let Some(addr) = request.remote_addr() {
+            let ip = addr.ip();
+            let now = now_ms();
+            if let Err(rate) = self.ip_limiter.lock().check(ip, now) {
+                warn!(ip = %ip, rate, "IP rate limit exceeded");
+                return Err(Status::resource_exhausted(
+                    format!("rate limit exceeded: {} requests/sec from {}", rate, ip),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Check per-account rate limit. Returns Ok(()) or Status::resource_exhausted.
+    fn check_account_rate(&self, account: &[u8; 32]) -> Result<(), Status> {
+        let now = now_ms();
+        if let Err(rate) = self.account_limiter.lock().check(account, now) {
+            warn!(account = hex::encode(account), rate, "account rate limit exceeded");
+            return Err(Status::resource_exhausted(
+                format!("account rate limit exceeded: {} tx/sec", rate),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -68,6 +131,7 @@ impl ZeroService for ZeroServer {
     type StreamTransfersStream = ReceiverStream<Result<TransferRecord, Status>>;
 
     async fn send(&self, request: Request<SendRequest>) -> Result<Response<SendResponse>, Status> {
+        self.check_ip_rate(&request)?;
         let req = request.into_inner();
 
         let from: [u8; 32] = req
@@ -82,6 +146,8 @@ impl ZeroService for ZeroServer {
             .signature
             .try_into()
             .map_err(|_| Status::invalid_argument("signature must be 64 bytes"))?;
+
+        self.check_account_rate(&from)?;
 
         let transfer = Transfer {
             from,
@@ -255,6 +321,7 @@ impl ZeroService for ZeroServer {
         &self,
         request: Request<BridgeOutRequest>,
     ) -> Result<Response<BridgeOutResponse>, Status> {
+        self.check_ip_rate(&request)?;
         let req = request.into_inner();
 
         let sender: [u8; 32] = req
@@ -265,6 +332,8 @@ impl ZeroService for ZeroServer {
             .signature
             .try_into()
             .map_err(|_| Status::invalid_argument("signature must be 64 bytes"))?;
+
+        self.check_account_rate(&sender)?;
 
         if req.z_amount == 0 {
             return Err(Status::invalid_argument("z_amount must be > 0"));
@@ -411,6 +480,11 @@ impl ZeroService for ZeroServer {
         &self,
         _request: Request<GetStatusRequest>,
     ) -> Result<Response<GetStatusResponse>, Status> {
+        // Piggyback rate limiter cleanup on status checks (called every few seconds by explorer)
+        let now = now_ms();
+        self.account_limiter.lock().cleanup(now);
+        self.ip_limiter.lock().cleanup(now);
+
         let node = self.node.read();
         let exec = self.executor.read();
 
@@ -892,6 +966,40 @@ mod tests {
             .await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code(), tonic::Code::FailedPrecondition);
+    }
+
+    #[test]
+    fn ip_rate_limiter_basic() {
+        let mut rl = IpRateLimiter::new(10);
+        let ip: IpAddr = "192.168.1.1".parse().unwrap();
+        for _ in 0..10 {
+            assert!(rl.check(ip, 1000).is_ok());
+        }
+        assert!(rl.check(ip, 1000).is_err());
+        // New window
+        assert!(rl.check(ip, 2001).is_ok());
+    }
+
+    #[test]
+    fn ip_rate_limiter_independent_ips() {
+        let mut rl = IpRateLimiter::new(5);
+        let ip1: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip2: IpAddr = "10.0.0.2".parse().unwrap();
+        for _ in 0..5 {
+            rl.check(ip1, 1000).unwrap();
+        }
+        assert!(rl.check(ip1, 1000).is_err());
+        assert!(rl.check(ip2, 1000).is_ok());
+    }
+
+    #[test]
+    fn ip_rate_limiter_cleanup() {
+        let mut rl = IpRateLimiter::new(10);
+        let ip: IpAddr = "10.0.0.1".parse().unwrap();
+        rl.check(ip, 1000).unwrap();
+        assert_eq!(rl.windows.len(), 1);
+        rl.cleanup(20_000);
+        assert_eq!(rl.windows.len(), 0);
     }
 
     #[tokio::test]
