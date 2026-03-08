@@ -7,6 +7,8 @@
 //!   4. Executing operations when signature threshold is met
 //!   5. Periodic cleanup of stale pending operations
 
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -37,11 +39,21 @@ pub struct BridgeService {
     ed25519_signing_key: SigningKey,
     ed25519_pubkey: [u8; 32],
     http_client: reqwest::Client,
+    /// Path to the block-height checkpoint file (persists last_block per chain).
+    checkpoint_path: PathBuf,
 }
 
 impl BridgeService {
     /// Create a new bridge service from config.
-    pub fn new(config: BridgeConfig, ecdsa_key: [u8; 32]) -> Result<Self, anyhow::Error> {
+    ///
+    /// `config_path` is the path to the bridge JSON config file; the checkpoint
+    /// file is placed alongside it with a `.checkpoint` suffix (e.g.
+    /// `bridge.json` -> `bridge.json.checkpoint`).
+    pub fn new(
+        config: BridgeConfig,
+        ecdsa_key: [u8; 32],
+        config_path: &std::path::Path,
+    ) -> Result<Self, anyhow::Error> {
         // Use the first vault's chain info for the signer.
         // In production, each chain would have its own signer instance.
         let first_vault = config
@@ -69,10 +81,23 @@ impl BridgeService {
         let ed25519_signing_key = SigningKey::from_bytes(&ed_key);
         let ed25519_pubkey = ed25519_signing_key.verifying_key().to_bytes();
 
+        // Derive checkpoint path: <config_path>.checkpoint
+        let checkpoint_path = {
+            let mut p = config_path.to_path_buf();
+            let mut name = p
+                .file_name()
+                .unwrap_or_default()
+                .to_os_string();
+            name.push(".checkpoint");
+            p.set_file_name(name);
+            p
+        };
+
         info!(
             address = hex::encode(signer.address),
             ed25519_pubkey = hex::encode(ed25519_pubkey),
             chain_id = first_vault.chain_id,
+            checkpoint = %checkpoint_path.display(),
             "Trinity Validator initialized (ECDSA + Ed25519)"
         );
 
@@ -83,6 +108,7 @@ impl BridgeService {
             ed25519_signing_key,
             ed25519_pubkey,
             http_client: reqwest::Client::new(),
+            checkpoint_path,
         })
     }
 
@@ -103,6 +129,7 @@ impl BridgeService {
         let state = Arc::new(AppState {
             collector: Mutex::new(collector),
             threshold_tx,
+            stats: http::BridgeStats::new(),
         });
 
         // Start HTTP coordination server
@@ -116,37 +143,52 @@ impl BridgeService {
             }
         });
 
+        // Load block-height checkpoint (if any) so we resume from where we left off.
+        let checkpoint = self.load_checkpoint();
+
         // Initialize per-chain watchers
         let mut watchers: Vec<ChainWatcher> = Vec::new();
         for vault_config in &self.config.vaults {
             let rpc = EthRpc::new(&vault_config.rpc_url, &vault_config.chain);
-            match rpc.block_number().await {
-                Ok(block) => {
-                    info!(
-                        chain = %vault_config.chain,
-                        block,
-                        vault = %vault_config.vault_address,
-                        "connected to chain"
-                    );
-                    watchers.push(ChainWatcher {
-                        config: vault_config.clone(),
-                        rpc,
-                        last_block: block,
-                    });
+
+            // Prefer the checkpointed block over the live tip so we don't skip
+            // deposits that arrived while the bridge was down.
+            let start_block = if let Some(&saved) = checkpoint.get(&vault_config.chain) {
+                info!(
+                    chain = %vault_config.chain,
+                    saved_block = saved,
+                    vault = %vault_config.vault_address,
+                    "resuming from checkpoint"
+                );
+                saved
+            } else {
+                // No checkpoint — fall back to current block (original behaviour).
+                match rpc.block_number().await {
+                    Ok(block) => {
+                        info!(
+                            chain = %vault_config.chain,
+                            block,
+                            vault = %vault_config.vault_address,
+                            "connected to chain (no checkpoint, starting at tip)"
+                        );
+                        block
+                    }
+                    Err(e) => {
+                        warn!(
+                            chain = %vault_config.chain,
+                            err = %e,
+                            "failed to connect — will retry"
+                        );
+                        0
+                    }
                 }
-                Err(e) => {
-                    warn!(
-                        chain = %vault_config.chain,
-                        err = %e,
-                        "failed to connect — will retry"
-                    );
-                    watchers.push(ChainWatcher {
-                        config: vault_config.clone(),
-                        rpc,
-                        last_block: 0,
-                    });
-                }
-            }
+            };
+
+            watchers.push(ChainWatcher {
+                config: vault_config.clone(),
+                rpc,
+                last_block: start_block,
+            });
         }
 
         let peer_endpoints: Vec<String> = self
@@ -175,7 +217,9 @@ impl BridgeService {
             tokio::select! {
                 // Poll chains for new deposits
                 _ = poll.tick() => {
+                    let mut any_advanced = false;
                     for watcher in &mut watchers {
+                        let prev = watcher.last_block;
                         if let Err(e) = self.poll_chain(watcher, &state).await {
                             warn!(
                                 chain = %watcher.config.chain,
@@ -183,6 +227,13 @@ impl BridgeService {
                                 "poll error"
                             );
                         }
+                        if watcher.last_block > prev {
+                            any_advanced = true;
+                        }
+                    }
+                    // Persist checkpoint only when at least one chain advanced.
+                    if any_advanced {
+                        self.save_checkpoint(&watchers);
                     }
                 }
 
@@ -223,6 +274,9 @@ impl BridgeService {
         state: &Arc<AppState>,
     ) -> Result<(), anyhow::Error> {
         let current_block = watcher.rpc.block_number().await?;
+
+        // Record poll stats for health endpoint
+        state.stats.record_poll(&watcher.config.chain, current_block).await;
 
         // Need enough confirmations
         let safe_block = current_block.saturating_sub(watcher.config.confirmations);
@@ -320,7 +374,39 @@ impl BridgeService {
                         {
                             Ok(()) => info!(peer = %endpoint, "shared Ed25519 mint attestation"),
                             Err(e) => {
-                                warn!(peer = %endpoint, err = %e, "failed to share mint attestation")
+                                let err_msg = e.to_string();
+                                if err_msg.contains("operation not found") {
+                                    info!(
+                                        peer = %endpoint,
+                                        "peer has not detected deposit yet, retrying in 3s"
+                                    );
+                                    tokio::time::sleep(Duration::from_secs(3)).await;
+                                    match http::send_ed25519_to_peer(
+                                        &self.http_client,
+                                        endpoint,
+                                        &op_id,
+                                        &self.ed25519_pubkey,
+                                        &sig_bytes,
+                                    )
+                                    .await
+                                    {
+                                        Ok(()) => info!(
+                                            peer = %endpoint,
+                                            "shared Ed25519 mint attestation (retry succeeded)"
+                                        ),
+                                        Err(e2) => warn!(
+                                            peer = %endpoint,
+                                            err = %e2,
+                                            "failed to share mint attestation after retry"
+                                        ),
+                                    }
+                                } else {
+                                    warn!(
+                                        peer = %endpoint,
+                                        err = %e,
+                                        "failed to share mint attestation"
+                                    );
+                                }
                             }
                         }
                     }
@@ -333,6 +419,62 @@ impl BridgeService {
 
         watcher.last_block = safe_block;
         Ok(())
+    }
+
+    /// Persist current `last_block` for every watcher to the checkpoint file.
+    fn save_checkpoint(&self, watchers: &[ChainWatcher]) {
+        let map: HashMap<&str, u64> = watchers
+            .iter()
+            .map(|w| (w.config.chain.as_str(), w.last_block))
+            .collect();
+        match serde_json::to_string_pretty(&map) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(&self.checkpoint_path, json.as_bytes()) {
+                    warn!(
+                        path = %self.checkpoint_path.display(),
+                        err = %e,
+                        "failed to write checkpoint file"
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(err = %e, "failed to serialize checkpoint");
+            }
+        }
+    }
+
+    /// Load the block-height checkpoint from disk.
+    ///
+    /// Returns an empty map if the file doesn't exist or can't be parsed, so
+    /// callers can fall back to the current block height.
+    fn load_checkpoint(&self) -> HashMap<String, u64> {
+        match std::fs::read_to_string(&self.checkpoint_path) {
+            Ok(contents) => match serde_json::from_str::<HashMap<String, u64>>(&contents) {
+                Ok(map) => {
+                    info!(
+                        path = %self.checkpoint_path.display(),
+                        chains = map.len(),
+                        "loaded block checkpoint"
+                    );
+                    map
+                }
+                Err(e) => {
+                    warn!(
+                        path = %self.checkpoint_path.display(),
+                        err = %e,
+                        "checkpoint file exists but failed to parse — starting fresh"
+                    );
+                    HashMap::new()
+                }
+            },
+            Err(_) => {
+                info!(
+                    path = %self.checkpoint_path.display(),
+                    "no checkpoint file found — will start from chain tip"
+                );
+                HashMap::new()
+            }
+        }
     }
 
     /// Handle an operation that has reached signature threshold.
@@ -384,6 +526,7 @@ impl BridgeService {
                                     chain = %watcher.config.chain,
                                     "release transaction submitted"
                                 );
+                                state.stats.record_completion(&OpType::Release);
                             }
                             Err(e) => {
                                 error!(
@@ -407,12 +550,17 @@ impl BridgeService {
                     "mint threshold met — submitting to Zero chain"
                 );
 
-                if let Err(e) = self.submit_mint_to_zero(&event.op_id, state).await {
-                    error!(
-                        op = hex::encode(event.op_id),
-                        err = %e,
-                        "failed to submit mint to Zero chain"
-                    );
+                match self.submit_mint_to_zero(&event.op_id, state).await {
+                    Ok(()) => {
+                        state.stats.record_completion(&OpType::Mint);
+                    }
+                    Err(e) => {
+                        error!(
+                            op = hex::encode(event.op_id),
+                            err = %e,
+                            "failed to submit mint to Zero chain"
+                        );
+                    }
                 }
             }
         }

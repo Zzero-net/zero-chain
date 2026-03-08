@@ -105,45 +105,59 @@ impl EthRpc {
     }
 
     /// Fetch logs matching the Deposited event from a vault contract.
+    ///
+    /// Automatically chunks into batches of 10 blocks to stay within Alchemy
+    /// free-tier `eth_getLogs` limits on Arbitrum.
     pub async fn get_deposit_logs(
         &self,
         vault_address: &str,
         from_block: u64,
         to_block: u64,
     ) -> Result<Vec<RawLog>, RpcError> {
+        const MAX_BLOCK_RANGE: u64 = 10;
         let event_sig = format!("0x{}", hex::encode(events::deposited_event_signature()));
+        let mut all_logs = Vec::new();
 
-        let req = JsonRpcRequest {
-            jsonrpc: "2.0",
-            method: "eth_getLogs",
-            params: serde_json::json!([{
-                "address": format!("0x{}", vault_address),
-                "topics": [event_sig],
-                "fromBlock": format!("0x{:x}", from_block),
-                "toBlock": format!("0x{:x}", to_block),
-            }]),
-            id: 1,
-        };
+        let mut chunk_from = from_block;
+        while chunk_from <= to_block {
+            let chunk_to = std::cmp::min(chunk_from + MAX_BLOCK_RANGE - 1, to_block);
 
-        let resp: JsonRpcResponse<Vec<RawLog>> = self
-            .client
-            .post(&self.rpc_url)
-            .json(&req)
-            .send()
-            .await?
-            .json()
-            .await?;
+            let req = JsonRpcRequest {
+                jsonrpc: "2.0",
+                method: "eth_getLogs",
+                params: serde_json::json!([{
+                    "address": format!("0x{}", vault_address),
+                    "topics": [event_sig],
+                    "fromBlock": format!("0x{:x}", chunk_from),
+                    "toBlock": format!("0x{:x}", chunk_to),
+                }]),
+                id: 1,
+            };
 
-        if let Some(err) = resp.error {
-            return Err(RpcError::JsonRpc {
-                code: err.code,
-                message: err.message,
-            });
+            let resp: JsonRpcResponse<Vec<RawLog>> = self
+                .client
+                .post(&self.rpc_url)
+                .json(&req)
+                .send()
+                .await?
+                .json()
+                .await?;
+
+            if let Some(err) = resp.error {
+                return Err(RpcError::JsonRpc {
+                    code: err.code,
+                    message: err.message,
+                });
+            }
+
+            let logs = resp.result.ok_or(RpcError::BadResponse)?;
+            all_logs.extend(logs);
+
+            chunk_from = chunk_to + 1;
         }
 
-        let logs = resp.result.ok_or(RpcError::BadResponse)?;
-        debug!(chain = %self.chain_name, count = logs.len(), "fetched deposit logs");
-        Ok(logs)
+        debug!(chain = %self.chain_name, count = all_logs.len(), "fetched deposit logs");
+        Ok(all_logs)
     }
 
     /// Parse a raw log into a DepositEvent.
@@ -164,45 +178,59 @@ impl EthRpc {
     }
 
     /// Fetch logs matching the Released event from a vault contract.
+    ///
+    /// Automatically chunks into batches of 10 blocks to stay within Alchemy
+    /// free-tier `eth_getLogs` limits on Arbitrum.
     pub async fn get_release_logs(
         &self,
         vault_address: &str,
         from_block: u64,
         to_block: u64,
     ) -> Result<Vec<RawLog>, RpcError> {
+        const MAX_BLOCK_RANGE: u64 = 10;
         let event_sig = format!("0x{}", hex::encode(events::released_event_signature()));
+        let mut all_logs = Vec::new();
 
-        let req = JsonRpcRequest {
-            jsonrpc: "2.0",
-            method: "eth_getLogs",
-            params: serde_json::json!([{
-                "address": format!("0x{}", vault_address),
-                "topics": [event_sig],
-                "fromBlock": format!("0x{:x}", from_block),
-                "toBlock": format!("0x{:x}", to_block),
-            }]),
-            id: 1,
-        };
+        let mut chunk_from = from_block;
+        while chunk_from <= to_block {
+            let chunk_to = std::cmp::min(chunk_from + MAX_BLOCK_RANGE - 1, to_block);
 
-        let resp: JsonRpcResponse<Vec<RawLog>> = self
-            .client
-            .post(&self.rpc_url)
-            .json(&req)
-            .send()
-            .await?
-            .json()
-            .await?;
+            let req = JsonRpcRequest {
+                jsonrpc: "2.0",
+                method: "eth_getLogs",
+                params: serde_json::json!([{
+                    "address": format!("0x{}", vault_address),
+                    "topics": [event_sig],
+                    "fromBlock": format!("0x{:x}", chunk_from),
+                    "toBlock": format!("0x{:x}", chunk_to),
+                }]),
+                id: 1,
+            };
 
-        if let Some(err) = resp.error {
-            return Err(RpcError::JsonRpc {
-                code: err.code,
-                message: err.message,
-            });
+            let resp: JsonRpcResponse<Vec<RawLog>> = self
+                .client
+                .post(&self.rpc_url)
+                .json(&req)
+                .send()
+                .await?
+                .json()
+                .await?;
+
+            if let Some(err) = resp.error {
+                return Err(RpcError::JsonRpc {
+                    code: err.code,
+                    message: err.message,
+                });
+            }
+
+            let logs = resp.result.ok_or(RpcError::BadResponse)?;
+            all_logs.extend(logs);
+
+            chunk_from = chunk_to + 1;
         }
 
-        let logs = resp.result.ok_or(RpcError::BadResponse)?;
-        debug!(chain = %self.chain_name, count = logs.len(), "fetched release logs");
-        Ok(logs)
+        debug!(chain = %self.chain_name, count = all_logs.len(), "fetched release logs");
+        Ok(all_logs)
     }
 
     /// Parse a raw log into a ReleaseEvent.

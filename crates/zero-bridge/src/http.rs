@@ -4,10 +4,13 @@
 //! Routes:
 //!   POST /signatures/ecdsa   — submit an ECDSA release signature
 //!   POST /signatures/ed25519 — submit an Ed25519 mint signature
-//!   GET  /health              — health check
+//!   GET  /health              — detailed health check (JSON)
 //!   GET  /status              — pending operation count
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
     Json, Router,
@@ -21,12 +24,67 @@ use tracing::{info, warn};
 
 use crate::coordinator::{OpType, SignatureCollector, SignatureResult};
 
+/// Runtime statistics tracked by the bridge service.
+pub struct BridgeStats {
+    /// Unix timestamp when the service started.
+    pub started_at: u64,
+    /// Total number of operations that reached threshold and were executed.
+    pub ops_completed: AtomicU64,
+    /// Total mints completed.
+    pub mints_completed: AtomicU64,
+    /// Total releases completed.
+    pub releases_completed: AtomicU64,
+    /// Last poll timestamp per chain (chain_name -> unix_timestamp).
+    pub last_poll_time: Mutex<HashMap<String, u64>>,
+    /// Last block seen per chain (chain_name -> block_number).
+    pub last_block: Mutex<HashMap<String, u64>>,
+}
+
+impl BridgeStats {
+    /// Create a new stats tracker, recording the current time as start.
+    pub fn new() -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        Self {
+            started_at: now,
+            ops_completed: AtomicU64::new(0),
+            mints_completed: AtomicU64::new(0),
+            releases_completed: AtomicU64::new(0),
+            last_poll_time: Mutex::new(HashMap::new()),
+            last_block: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Record a completed operation.
+    pub fn record_completion(&self, op_type: &OpType) {
+        self.ops_completed.fetch_add(1, Ordering::Relaxed);
+        match op_type {
+            OpType::Mint => { self.mints_completed.fetch_add(1, Ordering::Relaxed); }
+            OpType::Release => { self.releases_completed.fetch_add(1, Ordering::Relaxed); }
+        }
+    }
+
+    /// Record a poll for a given chain.
+    pub async fn record_poll(&self, chain: &str, block: u64) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        self.last_poll_time.lock().await.insert(chain.to_string(), now);
+        self.last_block.lock().await.insert(chain.to_string(), block);
+    }
+}
+
 /// Shared state for the HTTP API.
 pub struct AppState {
     pub collector: Mutex<SignatureCollector>,
     /// Callback invoked when an operation reaches threshold.
     /// Contains (op_id, op_type, sorted_ecdsa_sigs).
     pub threshold_tx: tokio::sync::mpsc::Sender<ThresholdEvent>,
+    /// Runtime statistics for health monitoring.
+    pub stats: BridgeStats,
 }
 
 use crate::eip712::ReleaseParams;
@@ -78,6 +136,38 @@ pub struct StatusResponse {
     pub healthy: bool,
 }
 
+/// Per-chain status in the health response.
+#[derive(Serialize)]
+pub struct ChainHealth {
+    /// Last time this chain was polled (unix timestamp).
+    pub last_poll_time: Option<u64>,
+    /// Seconds since last poll (None if never polled).
+    pub secs_since_poll: Option<u64>,
+    /// Last block number seen on this chain.
+    pub last_block: Option<u64>,
+}
+
+/// Detailed health check response.
+#[derive(Serialize)]
+pub struct HealthResponse {
+    /// Overall status: "healthy" or "degraded".
+    pub status: String,
+    /// Service uptime in seconds.
+    pub uptime_secs: u64,
+    /// Number of pending operations awaiting signatures.
+    pub pending_operations: usize,
+    /// Total operations completed (reached threshold and executed).
+    pub ops_completed: u64,
+    /// Total mints completed.
+    pub mints_completed: u64,
+    /// Total releases completed.
+    pub releases_completed: u64,
+    /// Per-chain health information.
+    pub chains: HashMap<String, ChainHealth>,
+    /// Current unix timestamp.
+    pub timestamp: u64,
+}
+
 /// Build the axum router with all coordination endpoints.
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
@@ -88,8 +178,58 @@ pub fn router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
-async fn health() -> &'static str {
-    "ok"
+async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let uptime_secs = now - state.stats.started_at;
+    let pending_operations = state.collector.lock().await.pending_count();
+    let ops_completed = state.stats.ops_completed.load(Ordering::Relaxed);
+    let mints_completed = state.stats.mints_completed.load(Ordering::Relaxed);
+    let releases_completed = state.stats.releases_completed.load(Ordering::Relaxed);
+
+    let poll_times = state.stats.last_poll_time.lock().await;
+    let last_blocks = state.stats.last_block.lock().await;
+
+    let mut chains = HashMap::new();
+    let mut degraded = false;
+
+    // Build per-chain health from all known chains
+    for (chain, &poll_time) in poll_times.iter() {
+        let secs_since = now.saturating_sub(poll_time);
+        // Consider degraded if any chain hasn't been polled in 60 seconds
+        if secs_since > 60 {
+            degraded = true;
+        }
+        chains.insert(
+            chain.clone(),
+            ChainHealth {
+                last_poll_time: Some(poll_time),
+                secs_since_poll: Some(secs_since),
+                last_block: last_blocks.get(chain).copied(),
+            },
+        );
+    }
+
+    // If uptime < 30s, don't mark as degraded (still starting up)
+    if uptime_secs < 30 {
+        degraded = false;
+    }
+
+    let status = if degraded { "degraded" } else { "healthy" }.to_string();
+
+    Json(HealthResponse {
+        status,
+        uptime_secs,
+        pending_operations,
+        ops_completed,
+        mints_completed,
+        releases_completed,
+        chains,
+        timestamp: now,
+    })
 }
 
 async fn status(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {

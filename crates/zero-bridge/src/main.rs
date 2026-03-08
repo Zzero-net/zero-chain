@@ -67,6 +67,6 @@ async fn main() -> anyhow::Result<()> {
     ecdsa_key.copy_from_slice(&key_bytes);
 
     // Start the bridge service
-    let service = BridgeService::new(config, ecdsa_key)?;
+    let service = BridgeService::new(config, ecdsa_key, &config_path)?;
     service.run().await
 }

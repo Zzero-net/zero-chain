@@ -28,3 +28,4 @@ pub use config::BridgeConfig;
 pub use coordinator::{PendingOperation, SignatureCollector};
 pub use eip712::{DomainSeparator, Eip712Signer, ReleaseParams, ReleaseSigning};
 pub use events::{DepositEvent, ReleaseEvent, parse_deposit_log, parse_release_log};
+pub use http::BridgeStats;
