@@ -1,0 +1,17 @@
+network = "zero-devnet"
+
+[[validators]]
+public_key = "a2d0e64f87ac5466cf55f10484b914eb1f32faa18b12b452670f84d4519370d8"
+stake = 100
+
+[[validators]]
+public_key = "37c5d92b17545e95891a77231b7b234c8db4f58bdb864c230904916c0cff48a5"
+stake = 100
+
+[[validators]]
+public_key = "11176d7ec5b53f572f847c1f9f9e015eb7623fa88fe7a6455a2207d1d6df38c7"
+stake = 100
+
+[[accounts]]
+public_key = "fcfbc3ce6d84cfcbef8f6daf9995e6cc045f35221ec377cf0d83476a2d2f5a6c"
+balance = 1000000

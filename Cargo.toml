@@ -1,0 +1,71 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/zero-types",
+    "crates/zero-crypto",
+    "crates/zero-storage",
+    "crates/zero-consensus",
+    "crates/zero-network",
+    "crates/zero-node",
+    "crates/zero-bridge",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+# Internal crates
+zero-types = { path = "crates/zero-types" }
+zero-crypto = { path = "crates/zero-crypto" }
+zero-storage = { path = "crates/zero-storage" }
+zero-consensus = { path = "crates/zero-consensus" }
+zero-network = { path = "crates/zero-network" }
+
+# Crypto
+ed25519-dalek = { version = "2", features = ["rand_core", "serde"] }
+k256 = { version = "0.13", features = ["ecdsa", "sha256"] }
+sha3 = "0.10"
+blake3 = "1"
+rand = "0.8"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1"
+
+# Async
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+
+# gRPC
+tonic = { version = "0.12", features = ["tls"] }
+prost = "0.13"
+tonic-build = "0.12"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# HTTP
+axum = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# RLP encoding (EIP-1559 transactions)
+alloy-rlp = "0.3"
+
+# Utils
+thiserror = "2"
+anyhow = "1"
+bytes = "1"
+dashmap = "6"
+parking_lot = "0.12"
+hex = "0.4"
+toml = "0.8"
+base64 = "0.22"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

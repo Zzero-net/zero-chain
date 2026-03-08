@@ -1,0 +1,15 @@
+[package]
+name = "zero-crypto"
+description = "Cryptographic primitives for Zero: Ed25519 signatures, BLAKE3 hashing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+zero-types = { workspace = true }
+ed25519-dalek = { workspace = true }
+blake3 = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+hex = { workspace = true }

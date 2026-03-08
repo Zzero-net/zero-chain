@@ -1,0 +1,42 @@
+{
+  "vaults": [
+    {
+      "chain": "base-sepolia",
+      "chain_id": 84532,
+      "rpc_url": "https://sepolia.base.org",
+      "vault_address": "0000000000000000000000000000000000000000",
+      "token_address": "0000000000000000000000000000000000000000",
+      "token_decimals": 6,
+      "confirmations": 12
+    },
+    {
+      "chain": "arbitrum-sepolia",
+      "chain_id": 421614,
+      "rpc_url": "https://sepolia-rollup.arbitrum.io/rpc",
+      "vault_address": "0000000000000000000000000000000000000000",
+      "token_address": "0000000000000000000000000000000000000000",
+      "token_decimals": 6,
+      "confirmations": 12
+    }
+  ],
+  "trinity": {
+    "ed25519_key_file": "trinity_ed25519.key",
+    "ecdsa_key_file": "trinity_ecdsa.key",
+    "index": 0
+  },
+  "peers": [
+    {
+      "endpoint": "http://peer1:9100",
+      "ed25519_pubkey": "0000000000000000000000000000000000000000000000000000000000000000",
+      "eth_address": "0000000000000000000000000000000000000000"
+    },
+    {
+      "endpoint": "http://peer2:9100",
+      "ed25519_pubkey": "0000000000000000000000000000000000000000000000000000000000000000",
+      "eth_address": "0000000000000000000000000000000000000000"
+    }
+  ],
+  "zero_rpc": "http://127.0.0.1:50051",
+  "listen_addr": "0.0.0.0:9100",
+  "poll_interval_ms": 5000
+}

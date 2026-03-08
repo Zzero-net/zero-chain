@@ -1,0 +1,15 @@
+[package]
+name = "zero-storage"
+description = "Storage engine for Zero: in-memory account state, ring buffer transfer log"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+zero-types = { workspace = true }
+zero-crypto = { workspace = true }
+ed25519-dalek = { workspace = true }
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

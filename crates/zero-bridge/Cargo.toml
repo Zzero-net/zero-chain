@@ -1,0 +1,51 @@
+[package]
+name = "zero-bridge"
+description = "Bridge attestation service for Trinity Validators — watches vault events, coordinates signatures, executes mints and releases"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "zero-bridge"
+path = "src/main.rs"
+
+[[bin]]
+name = "zero-watcher"
+path = "src/bin/zero-watcher.rs"
+
+[dependencies]
+zero-types = { workspace = true }
+zero-crypto = { workspace = true }
+zero-storage = { workspace = true }
+
+# ECDSA (secp256k1) for Ethereum signatures
+k256 = { workspace = true }
+sha3 = { workspace = true }
+
+# Ed25519 for Zero chain attestations
+ed25519-dalek = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+hex = { workspace = true }
+
+# Async
+tokio = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# HTTP (peer coordination API + Ethereum RPC)
+axum = { workspace = true }
+reqwest = { workspace = true }
+
+# Logging (subscriber for binary)
+tracing-subscriber = { workspace = true }
+
+# RLP encoding (EIP-1559 transactions)
+alloy-rlp = { workspace = true }
+
+# Utils
+thiserror = { workspace = true }
+anyhow = { workspace = true }

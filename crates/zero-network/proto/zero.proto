@@ -1,0 +1,221 @@
+syntax = "proto3";
+
+package zero;
+
+// The Zero network API: 10 endpoints.
+service ZeroService {
+    // Transfers
+    rpc Send(SendRequest) returns (SendResponse);
+    rpc GetTransfer(GetTransferRequest) returns (GetTransferResponse);
+    rpc GetHistory(GetHistoryRequest) returns (GetHistoryResponse);
+
+    // Accounts
+    rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
+    rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
+
+    // Bridge
+    rpc BridgeIn(BridgeInRequest) returns (BridgeInResponse);
+    rpc BridgeOut(BridgeOutRequest) returns (BridgeOutResponse);
+    rpc GetBridgeStatus(GetBridgeStatusRequest) returns (GetBridgeStatusResponse);
+
+    // Health & Metrics
+    rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+
+    // Archive: stream finalized transfers from a given sequence number
+    rpc StreamTransfers(StreamTransfersRequest) returns (stream TransferRecord);
+}
+
+// --- Transfer messages ---
+
+message SendRequest {
+    bytes from = 1;         // 32 bytes: Ed25519 public key
+    bytes to = 2;           // 32 bytes: Ed25519 public key
+    uint32 amount = 3;      // Amount in units
+    uint32 nonce = 4;       // Per-account monotonic nonce
+    bytes signature = 5;    // 64 bytes: Ed25519 signature
+}
+
+message SendResponse {
+    bytes tx_hash = 1;      // 32 bytes: BLAKE3 hash
+    uint64 seq = 2;         // Global sequence number
+}
+
+message GetTransferRequest {
+    bytes tx_hash = 1;      // 32 bytes
+}
+
+message GetTransferResponse {
+    bytes from = 1;
+    bytes to = 2;
+    uint32 amount = 3;
+    uint32 nonce = 4;
+    bytes signature = 5;
+    uint64 seq = 6;
+    string status = 7;      // "pending", "finalized", "not_found"
+}
+
+message GetHistoryRequest {
+    bytes account = 1;      // 32 bytes: public key
+    uint32 limit = 2;       // Max results to return
+}
+
+message GetHistoryResponse {
+    repeated TransferRecord transfers = 1;
+}
+
+message TransferRecord {
+    bytes from = 1;
+    bytes to = 2;
+    uint32 amount = 3;
+    uint32 nonce = 4;
+    uint64 seq = 5;
+    bytes tx_hash = 6;
+}
+
+message StreamTransfersRequest {
+    uint64 from_seq = 1;    // Start streaming from this sequence number
+}
+
+// --- Account messages ---
+
+message GetBalanceRequest {
+    bytes account = 1;      // 32 bytes
+}
+
+message GetBalanceResponse {
+    uint32 balance = 1;     // Balance in units
+}
+
+message GetAccountRequest {
+    bytes account = 1;
+}
+
+message GetAccountResponse {
+    uint32 balance = 1;
+    uint32 nonce = 2;
+    bytes head = 3;         // 32 bytes: head block hash
+    uint64 flags = 4;
+}
+
+// --- Validator gossip (inter-node) ---
+
+service ZeroGossip {
+    // Push a newly produced event to a peer.
+    rpc PushEvent(GossipEvent) returns (GossipAck);
+    // Pull events a peer might be missing (catch-up).
+    rpc PullEvents(PullRequest) returns (PullResponse);
+}
+
+message GossipBlockRef {
+    uint32 round = 1;
+    uint32 author = 2;
+    bytes digest = 3;       // 32 bytes
+}
+
+message GossipTransfer {
+    bytes from = 1;
+    bytes to = 2;
+    uint32 amount = 3;
+    uint32 nonce = 4;
+    bytes signature = 5;    // 64 bytes
+}
+
+message GossipEvent {
+    uint32 round = 1;
+    uint32 author = 2;
+    uint64 timestamp = 3;
+    repeated GossipBlockRef parents = 4;
+    repeated GossipTransfer transfers = 5;
+    bytes digest = 6;       // 32 bytes
+}
+
+message GossipAck {
+    bool accepted = 1;
+    string reason = 2;      // Empty if accepted, error message if not
+}
+
+message PullRequest {
+    uint32 from_round = 1;  // Lowest round the requester needs
+    uint32 max_events = 2;  // Max events to return
+}
+
+message PullResponse {
+    repeated GossipEvent events = 1;
+}
+
+// --- Bridge messages ---
+
+message BridgeInRequest {
+    string source_chain = 1;    // "ethereum", "arbitrum", "base", "solana"
+    string token = 2;           // "USDC", "USDT"
+    string tx_hash = 3;         // Source chain transaction hash
+    bytes zero_recipient = 4;   // 32 bytes: Zero public key
+}
+
+message BridgeInResponse {
+    string bridge_id = 1;
+    string status = 2;         // "pending_attestation", "minted"
+    uint32 z_amount = 3;       // Z amount minted (amount * 100)
+}
+
+message BridgeOutRequest {
+    string dest_chain = 1;
+    string token = 2;
+    string dest_address = 3;    // Destination chain address
+    uint32 z_amount = 4;        // Z amount to burn
+    bytes from = 5;             // 32 bytes: sender's Zero public key
+    bytes signature = 6;        // 64 bytes: signature over burn request
+}
+
+message BridgeOutResponse {
+    string bridge_id = 1;
+    string status = 2;         // "pending_burn", "pending_release", "released"
+}
+
+message GetBridgeStatusRequest {
+    string bridge_id = 1;
+}
+
+message GetBridgeStatusResponse {
+    string bridge_id = 1;
+    string direction = 2;      // "in", "out"
+    string status = 3;
+    string source_chain = 4;
+    string token = 5;
+    uint32 z_amount = 6;
+    uint32 attestations = 7;   // Number of validator attestations
+    uint32 required = 8;       // Required attestations (2/3+)
+}
+
+// --- Health & Metrics ---
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+    // Node info
+    uint32 validator_index = 1;
+    uint64 uptime_ms = 2;
+
+    // Consensus
+    uint32 dag_round = 3;
+    uint64 finalized_events = 4;
+    uint64 finalized_txs = 5;
+    uint64 current_epoch = 6;
+
+    // State
+    uint64 account_count = 7;
+    uint64 total_supply = 8;
+    uint64 fee_pool = 9;
+    uint64 bridge_reserve = 10;
+    uint64 protocol_reserve = 11;
+
+    // Staking
+    uint32 active_validators = 12;
+    uint64 total_stake = 13;
+    uint32 unbonding_count = 14;
+
+    // Health
+    uint32 peer_count = 15;
+    uint32 pending_transfers = 16;
+    uint32 dust_candidates = 17;
+}

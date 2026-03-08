@@ -1,0 +1,8 @@
+validator_index = 2
+key_file = "validator.key"
+listen = "127.0.0.1:50053"
+peers = ["http://127.0.0.1:50051", "http://127.0.0.1:50052"]
+data_dir = "."
+event_interval_ms = 200
+log_capacity = 100000
+max_batch_size = 500

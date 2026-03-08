@@ -1,0 +1,24 @@
+# Build artifacts
+/target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Devnet runtime data (keys, logs, snapshots)
+devnet/node*/validator.key
+devnet/node*/node.log
+devnet/node*/state.snapshot
+devnet/test_account.key
+
+# Environment
+.env
+*.pem
+*.key
+!Cargo.lock

@@ -1,0 +1,28 @@
+[package]
+name = "zero-node"
+description = "Zero validator node binary"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "zero-node"
+path = "src/main.rs"
+
+[dependencies]
+zero-types = { workspace = true }
+zero-crypto = { workspace = true }
+zero-storage = { workspace = true }
+zero-consensus = { workspace = true }
+zero-network = { workspace = true }
+tonic = { workspace = true }
+parking_lot = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+hex = { workspace = true }
+axum = { workspace = true }
