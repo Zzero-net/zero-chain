@@ -10,6 +10,16 @@ use std::collections::HashMap;
 
 use crate::eip712::{recover_signer, Eip712Error};
 
+/// Metadata for a pending mint operation (deposit details needed for POST submission).
+#[derive(Debug, Clone)]
+pub struct MintMeta {
+    pub recipient: [u8; 32],
+    pub amount: u64,
+    pub source_chain: String,
+    /// Hex-encoded source transaction hash (no 0x prefix).
+    pub source_tx: String,
+}
+
 /// A pending bridge operation waiting for signatures.
 #[derive(Debug, Clone)]
 pub struct PendingOperation {
@@ -23,6 +33,8 @@ pub struct PendingOperation {
     pub ed25519_signatures: HashMap<[u8; 32], [u8; 64]>,
     /// The EIP-712 digest (for release operations)
     pub digest: Option<[u8; 32]>,
+    /// Mint operation metadata (for mint operations)
+    pub mint_meta: Option<MintMeta>,
     /// Creation timestamp
     pub created_at: u64,
 }
@@ -99,6 +111,7 @@ impl SignatureCollector {
             ecdsa_signatures: HashMap::new(),
             ed25519_signatures: HashMap::new(),
             digest,
+            mint_meta: None,
             created_at: now,
         });
     }
@@ -201,6 +214,13 @@ impl SignatureCollector {
             result.extend_from_slice(sig);
         }
         result
+    }
+
+    /// Store mint metadata for a pending operation.
+    pub fn set_mint_meta(&mut self, op_id: &[u8; 32], meta: MintMeta) {
+        if let Some(op) = self.pending.get_mut(op_id) {
+            op.mint_meta = Some(meta);
+        }
     }
 
     /// Get a reference to a pending operation by ID.

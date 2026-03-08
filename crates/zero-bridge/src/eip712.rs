@@ -23,12 +23,13 @@ pub struct DomainSeparator {
 }
 
 /// Pre-computed type hash: keccak256("Release(address token,uint256 amount,address recipient,bytes32 bridgeId)")
-pub const RELEASE_TYPEHASH: [u8; 32] = {
-    // This is computed at compile time via const evaluation
-    // In production, verify this matches the contract's RELEASE_TYPEHASH
-    // For now, we compute it at runtime in tests
-    [0u8; 32] // Placeholder — computed at runtime via release_typehash()
-};
+/// Matches ZeroVault.RELEASE_TYPEHASH (0xb0eff49e...).
+pub const RELEASE_TYPEHASH: [u8; 32] = [
+    0xb0, 0xef, 0xf4, 0x9e, 0x45, 0x23, 0x78, 0x91,
+    0x05, 0xf5, 0x4c, 0xf6, 0x1c, 0x1c, 0x1f, 0x3e,
+    0x5d, 0xa6, 0x4c, 0x07, 0x5c, 0x8c, 0xca, 0xc9,
+    0x5e, 0x8d, 0x47, 0x90, 0x85, 0xf4, 0xbc, 0x57,
+];
 
 /// Compute keccak256 of input bytes.
 pub fn keccak256(data: &[u8]) -> [u8; 32] {

@@ -16,7 +16,7 @@ use tracing::{error, info, warn};
 use ed25519_dalek::{Signer, SigningKey};
 
 use crate::config::{BridgeConfig, VaultConfig};
-use crate::coordinator::{OpType, SignatureCollector};
+use crate::coordinator::{MintMeta, OpType, SignatureCollector};
 use crate::eip712::{Eip712Signer, ReleaseParams};
 use crate::http::{self, AppState, ThresholdEvent};
 use crate::rpc::EthRpc;
@@ -246,16 +246,27 @@ impl BridgeService {
                         .unwrap()
                         .as_secs();
 
+                    // Convert to Z units and prepare signing data
+                    let z_units = deposit.to_z_units(watcher.config.token_decimals);
+                    let source_tx_hex = hex::encode(deposit.source_tx);
+
                     let mut collector = state.collector.lock().await;
                     collector.create_operation(op_id, OpType::Mint, None, now);
 
+                    // Store deposit details so submit_mint_to_zero() can build the POST body
+                    collector.set_mint_meta(&op_id, MintMeta {
+                        recipient: deposit.zero_recipient,
+                        amount: z_units,
+                        source_chain: deposit.source_chain.clone(),
+                        source_tx: source_tx_hex.clone(),
+                    });
+
                     // Sign the mint attestation with our Ed25519 key
-                    let z_units = deposit.to_z_units(watcher.config.token_decimals);
                     let mint_op = BridgeOp::Mint {
                         recipient: deposit.zero_recipient,
                         amount: z_units,
                         source_chain: deposit.source_chain.clone(),
-                        source_tx: hex::encode(deposit.source_tx),
+                        source_tx: source_tx_hex.clone(),
                     };
                     let signing_bytes = mint_op.signing_bytes();
                     let signature = self.ed25519_signing_key.sign(&signing_bytes);
@@ -430,7 +441,7 @@ impl BridgeService {
 
     /// Submit a mint attestation to the Zero chain.
     /// Called when 2-of-3 Ed25519 signatures have been collected.
-    /// Sends attestation data to the Zero chain node's mint API endpoint.
+    /// POSTs attestation data to the Zero chain node's /bridge/mint endpoint.
     async fn submit_mint_to_zero(
         &self,
         op_id: &[u8; 32],
@@ -440,28 +451,60 @@ impl BridgeService {
         let pending = collector.get_operation(op_id)
             .ok_or_else(|| anyhow::anyhow!("operation not found for mint submission"))?;
 
-        // Collect the Ed25519 attestation signatures
-        let sigs: Vec<_> = pending.ed25519_signatures.iter()
-            .map(|(pk, sig)| (hex::encode(pk), hex::encode(sig)))
+        let mint_meta = pending.mint_meta.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("no mint metadata stored for operation"))?;
+
+        // Build the JSON payload matching bridge_api.rs MintRequest
+        let attestations: Vec<serde_json::Value> = pending.ed25519_signatures.iter()
+            .map(|(pk, sig)| serde_json::json!({
+                "pubkey": hex::encode(pk),
+                "signature": hex::encode(sig),
+            }))
             .collect();
+
+        let payload = serde_json::json!({
+            "recipient": hex::encode(mint_meta.recipient),
+            "amount": mint_meta.amount,
+            "source_chain": mint_meta.source_chain,
+            "source_tx": mint_meta.source_tx,
+            "attestations": attestations,
+        });
+
+        let sigs_count = attestations.len();
         drop(collector);
 
+        let url = format!("{}/bridge/mint", self.config.zero_rpc);
         info!(
             op = hex::encode(op_id),
-            attestations = sigs.len(),
-            zero_rpc = %self.config.zero_rpc,
-            "mint attestation ready — {} of 3 signatures collected",
-            sigs.len(),
+            attestations = sigs_count,
+            url = %url,
+            "submitting mint to Zero chain"
         );
 
-        // The Zero chain node needs a mint attestation HTTP endpoint.
-        // For now, log the successful collection. The chain node will be
-        // extended with a POST /bridge/mint endpoint that accepts:
-        //   { op_id, recipient, amount, source_chain, source_tx, signatures: [{pubkey, sig}] }
-        // and calls executor.bridge_mint() after verifying the attestation
-        // via TrinityValidatorSet::verify_attestation().
+        let resp = self.http_client
+            .post(&url)
+            .json(&payload)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to reach Zero chain: {}", e))?;
 
-        Ok(())
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+
+        if status.is_success() {
+            info!(
+                op = hex::encode(op_id),
+                response = %body,
+                "mint submitted successfully"
+            );
+            // Clean up the completed operation
+            let mut collector = state.collector.lock().await;
+            collector.remove_operation(op_id);
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("mint submission failed ({}): {}", status, body))
+        }
     }
 
     /// Build the 3-guardian Ethereum address array from config.

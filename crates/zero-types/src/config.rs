@@ -45,6 +45,9 @@ pub struct NodeConfig {
     /// Faucet cooldown per account in seconds (default: 3600 = 1 hour).
     #[serde(default = "default_faucet_cooldown")]
     pub faucet_cooldown_secs: u64,
+    /// Bridge mint API listen address (e.g. "0.0.0.0:8094"). When set, enables POST /bridge/mint.
+    #[serde(default)]
+    pub bridge_listen: Option<String>,
 }
 
 fn default_log_capacity() -> usize {

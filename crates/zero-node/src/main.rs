@@ -1,3 +1,4 @@
+mod bridge_api;
 mod faucet;
 
 use std::path::PathBuf;
@@ -229,6 +230,26 @@ async fn main() -> anyhow::Result<()> {
                 warn!(err = e, "Failed to load faucet key — faucet disabled");
             }
         }
+    }
+
+    // Start bridge mint API if configured
+    if let Some(bridge_listen) = &config.bridge_listen {
+        let trinity_pubkeys: Vec<[u8; 32]> = genesis
+            .validators
+            .iter()
+            .map(|gv| {
+                hex::decode(&gv.public_key)
+                    .expect("Invalid hex in genesis validator public_key")
+                    .try_into()
+                    .expect("Genesis validator public_key must be 32 bytes")
+            })
+            .collect();
+
+        bridge_api::start_bridge_api(
+            Arc::clone(&node),
+            trinity_pubkeys,
+            bridge_listen.clone(),
+        );
     }
 
     // Start periodic snapshot saving
