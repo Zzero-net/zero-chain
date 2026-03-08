@@ -100,7 +100,7 @@ cargo test
 | Units per Z            | 100             |
 | Transfer fee           | 1 unit (0.01 Z) |
 | Max transfer amount    | 2,500 units (25 Z) |
-| Account creation fee   | 10,000 units (100 Z) |
+| Account creation fee   | 100 units (1 Z)  |
 | Min send balance       | 100 units (1 Z) |
 | Max validators         | 1,024           |
 | Min validator stake    | 10,000 Z        |
