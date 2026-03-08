@@ -256,7 +256,7 @@ mod tests {
 
     fn make_event(round: Round, author: ValidatorIndex, parents: Vec<BlockRef>) -> Event {
         let digest = zero_crypto::blake3_hash(
-            &[&round.to_le_bytes()[..], &(author as u16).to_le_bytes()[..]].concat(),
+            &[&round.to_le_bytes()[..], &author.to_le_bytes()[..]].concat(),
         );
         Event {
             round,
@@ -271,12 +271,7 @@ mod tests {
     /// Create an event with a unique salt to produce a different digest for the same round/author.
     fn make_event_with_salt(round: Round, author: ValidatorIndex, salt: u8) -> Event {
         let digest = zero_crypto::blake3_hash(
-            &[
-                &round.to_le_bytes()[..],
-                &(author as u16).to_le_bytes()[..],
-                &[salt],
-            ]
-            .concat(),
+            &[&round.to_le_bytes()[..], &author.to_le_bytes()[..], &[salt]].concat(),
         );
         Event {
             round,

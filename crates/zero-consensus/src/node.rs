@@ -757,7 +757,7 @@ mod tests {
 
         // Finalize: round 1 events should be finalized (all 3 validators in round 2 reference them)
         let finalized = dag.write().try_finalize(&committee);
-        let e0_finalized = finalized.iter().any(|r| *r == e0_ref);
+        let e0_finalized = finalized.contains(&e0_ref);
         assert!(e0_finalized, "e0 should be finalized");
 
         // Execute batch0 (validator 0's round-1 event)
@@ -848,7 +848,7 @@ mod tests {
     #[test]
     fn rotate_committee_preserves_same_set() {
         let committee = make_committee(3);
-        let mut node = Node::new(0, committee, 10_000, 100);
+        let node = Node::new(0, committee, 10_000, 100);
 
         // Force a committee rotation by calling the private method indirectly
         // via triggering an epoch boundary
