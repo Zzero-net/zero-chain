@@ -299,6 +299,7 @@ mod tests {
             amount: 1_000_000,
             recipient: [0x22; 20],
             bridge_id: [0x33; 32],
+            dest_chain: "base".into(),
         }
     }
 

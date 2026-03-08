@@ -34,10 +34,13 @@ struct ChainWatcher {
 /// The bridge service daemon.
 pub struct BridgeService {
     config: BridgeConfig,
-    signer: Eip712Signer,
+    /// Per-chain EIP-712 signers, keyed by chain name (e.g. "base", "arbitrum").
+    signers: HashMap<String, Eip712Signer>,
     ecdsa_key: [u8; 32],
     ed25519_signing_key: SigningKey,
     ed25519_pubkey: [u8; 32],
+    /// Our Ethereum address (derived from ECDSA key, same across all chains).
+    ecdsa_address: [u8; 20],
     http_client: reqwest::Client,
     /// Path to the block-height checkpoint file (persists last_block per chain).
     checkpoint_path: PathBuf,
@@ -54,16 +57,27 @@ impl BridgeService {
         ecdsa_key: [u8; 32],
         config_path: &std::path::Path,
     ) -> Result<Self, anyhow::Error> {
-        // Use the first vault's chain info for the signer.
-        // In production, each chain would have its own signer instance.
-        let first_vault = config
-            .vaults
-            .first()
-            .ok_or_else(|| anyhow::anyhow!("no vaults configured"))?;
-        let vault_addr = BridgeConfig::vault_address_bytes(&first_vault.vault_address)?;
+        if config.vaults.is_empty() {
+            return Err(anyhow::anyhow!("no vaults configured"));
+        }
 
-        let signer = Eip712Signer::new(&ecdsa_key, first_vault.chain_id, vault_addr)
-            .map_err(|e| anyhow::anyhow!("failed to create signer: {}", e))?;
+        // Build a per-chain EIP-712 signer for each vault deployment.
+        let mut signers = HashMap::new();
+        let mut ecdsa_address = [0u8; 20];
+        for vault in &config.vaults {
+            let vault_addr = BridgeConfig::vault_address_bytes(&vault.vault_address)?;
+            let signer = Eip712Signer::new(&ecdsa_key, vault.chain_id, vault_addr)
+                .map_err(|e| anyhow::anyhow!("failed to create signer for {}: {}", vault.chain, e))?;
+            ecdsa_address = signer.address;
+            info!(
+                chain = %vault.chain,
+                chain_id = vault.chain_id,
+                vault = %vault.vault_address,
+                address = hex::encode(signer.address),
+                "EIP-712 signer created for chain"
+            );
+            signers.insert(vault.chain.clone(), signer);
+        }
 
         // Load Ed25519 signing key for Zero chain attestations
         let ed_key_bytes = std::fs::read(&config.trinity.ed25519_key_file)
@@ -94,19 +108,20 @@ impl BridgeService {
         };
 
         info!(
-            address = hex::encode(signer.address),
+            address = hex::encode(ecdsa_address),
             ed25519_pubkey = hex::encode(ed25519_pubkey),
-            chain_id = first_vault.chain_id,
+            chains = signers.len(),
             checkpoint = %checkpoint_path.display(),
             "Trinity Validator initialized (ECDSA + Ed25519)"
         );
 
         Ok(Self {
             config,
-            signer,
+            signers,
             ecdsa_key,
             ed25519_signing_key,
             ed25519_pubkey,
+            ecdsa_address,
             http_client: reqwest::Client::new(),
             checkpoint_path,
         })
@@ -493,55 +508,69 @@ impl BridgeService {
                     "release threshold met — submitting to vault"
                 );
 
-                // Use the first vault for now (production would route by chain)
-                if let Some(watcher) = watchers.first() {
-                    if let Some(params) = &event.release_params {
-                        let vault_addr = match BridgeConfig::vault_address_bytes(
-                            &watcher.config.vault_address,
-                        ) {
-                            Ok(a) => a,
-                            Err(e) => {
-                                error!(err = %e, "invalid vault address in config");
-                                return;
-                            }
-                        };
+                if let Some(params) = &event.release_params {
+                    // Route to the vault whose chain matches the burn's dest_chain.
+                    let watcher = watchers
+                        .iter()
+                        .find(|w| w.config.chain == params.dest_chain);
 
-                        match watcher
-                            .rpc
-                            .send_release(
-                                watcher.config.chain_id,
-                                &vault_addr,
-                                &params.token,
-                                params.amount,
-                                &params.recipient,
-                                &params.bridge_id,
-                                &event.ecdsa_sigs_sorted,
-                                &self.ecdsa_key,
-                            )
-                            .await
-                        {
-                            Ok(tx_hash) => {
-                                info!(
-                                    tx = hex::encode(tx_hash),
-                                    chain = %watcher.config.chain,
-                                    "release transaction submitted"
-                                );
-                                state.stats.record_completion(&OpType::Release);
-                            }
-                            Err(e) => {
-                                error!(
-                                    err = %e,
-                                    chain = %watcher.config.chain,
-                                    "release transaction failed"
-                                );
-                            }
+                    let watcher = match watcher {
+                        Some(w) => w,
+                        None => {
+                            error!(
+                                op = hex::encode(event.op_id),
+                                dest_chain = %params.dest_chain,
+                                "no vault configured for destination chain"
+                            );
+                            return;
                         }
-                    } else {
-                        warn!(
-                            op = hex::encode(event.op_id),
-                            "release threshold met but no params stored"
-                        );
+                    };
+
+                    let vault_addr = match BridgeConfig::vault_address_bytes(
+                        &watcher.config.vault_address,
+                    ) {
+                        Ok(a) => a,
+                        Err(e) => {
+                            error!(err = %e, "invalid vault address in config");
+                            return;
+                        }
+                    };
+
+                    match watcher
+                        .rpc
+                        .send_release(
+                            watcher.config.chain_id,
+                            &vault_addr,
+                            &params.token,
+                            params.amount,
+                            &params.recipient,
+                            &params.bridge_id,
+                            &event.ecdsa_sigs_sorted,
+                            &self.ecdsa_key,
+                        )
+                        .await
+                    {
+                        Ok(tx_hash) => {
+                            info!(
+                                tx = hex::encode(tx_hash),
+                                chain = %watcher.config.chain,
+                                "release transaction submitted"
+                            );
+                            state.stats.record_completion(&OpType::Release);
+                        }
+                        Err(e) => {
+                            error!(
+                                err = %e,
+                                chain = %watcher.config.chain,
+                                "release transaction failed"
+                            );
+                        }
                     }
+                } else {
+                    warn!(
+                        op = hex::encode(event.op_id),
+                        "release threshold met but no params stored"
+                    );
                 }
             }
             OpType::Mint => {
@@ -574,8 +603,16 @@ impl BridgeService {
         state: &Arc<AppState>,
         peer_endpoints: &[String],
     ) -> Result<(), anyhow::Error> {
-        let signed = self
-            .signer
+        let signer = self
+            .signers
+            .get(&params.dest_chain)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no EIP-712 signer for chain '{}' — check vault config",
+                    params.dest_chain
+                )
+            })?;
+        let signed = signer
             .sign_release(params)
             .map_err(|e| anyhow::anyhow!("signing failed: {}", e))?;
 
@@ -705,7 +742,7 @@ impl BridgeService {
         }
 
         let mut guardians = [[0u8; 20]; 3];
-        guardians[my_index] = self.signer.address;
+        guardians[my_index] = self.ecdsa_address;
 
         let mut peer_idx = 0;
         for (i, guardian) in guardians.iter_mut().enumerate() {

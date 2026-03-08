@@ -93,6 +93,9 @@ pub struct ReleaseParams {
     pub recipient: [u8; 20],
     /// Unique bridge operation ID (32 bytes)
     pub bridge_id: [u8; 32],
+    /// Destination chain name (e.g. "base", "arbitrum") — used for vault routing.
+    /// Not part of the EIP-712 struct hash; only used to select the correct vault.
+    pub dest_chain: String,
 }
 
 /// Computes the EIP-712 struct hash for a Release operation.
@@ -296,6 +299,7 @@ mod tests {
             amount: 1_000_000,
             recipient: [0x22; 20],
             bridge_id: [0x33; 32],
+            dest_chain: "base".into(),
         };
 
         let signed = signer.sign_release(&params).unwrap();
@@ -314,6 +318,7 @@ mod tests {
             amount: 1_000_000,
             recipient: [0x22; 20],
             bridge_id: [0x33; 32],
+            dest_chain: "base".into(),
         };
 
         let params2 = ReleaseParams {
@@ -321,6 +326,7 @@ mod tests {
             amount: 2_000_000, // Different amount
             recipient: [0x22; 20],
             bridge_id: [0x33; 32],
+            dest_chain: "base".into(),
         };
 
         let signed1 = signer.sign_release(&params1).unwrap();
@@ -345,6 +351,7 @@ mod tests {
             amount: 1_000_000,
             recipient: [0x22; 20],
             bridge_id: [0x33; 32],
+            dest_chain: "base".into(),
         };
 
         let signed1 = signer1.sign_release(&params).unwrap();
@@ -367,6 +374,7 @@ mod tests {
             amount: 1_000_000,
             recipient: [0x22; 20],
             bridge_id: [0x33; 32],
+            dest_chain: "base".into(),
         };
 
         let signed = signer.sign_release(&params).unwrap();
@@ -400,6 +408,7 @@ mod tests {
             amount: 1_000_000,
             recipient: [0x22; 20],
             bridge_id: [0x33; 32],
+            dest_chain: "base".into(),
         };
         let signed = signer.sign_release(&params).unwrap();
         assert_eq!(signed.signature.len(), 65);
