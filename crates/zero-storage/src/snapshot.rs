@@ -25,11 +25,7 @@ const RECORD_SIZE: usize = 80;
 ///   For each account:
 ///     [32 bytes] public key
 ///     [48 bytes] account state (Account::to_bytes())
-pub fn save_snapshot(
-    store: &AccountStore,
-    total_written: u64,
-    path: &Path,
-) -> io::Result<()> {
+pub fn save_snapshot(store: &AccountStore, total_written: u64, path: &Path) -> io::Result<()> {
     let tmp_path = path.with_extension("tmp");
 
     let mut file = fs::File::create(&tmp_path)?;
@@ -68,8 +64,8 @@ pub fn save_snapshot(
 /// Load account state from a snapshot file.
 /// Returns (AccountStore, total_written).
 pub fn load_snapshot(path: &Path) -> Result<(AccountStore, u64), String> {
-    let data = fs::read(path)
-        .map_err(|e| format!("Failed to read snapshot {}: {}", path.display(), e))?;
+    let data =
+        fs::read(path).map_err(|e| format!("Failed to read snapshot {}: {}", path.display(), e))?;
 
     if data.len() < HEADER_SIZE {
         return Err("Snapshot file too small for header".into());

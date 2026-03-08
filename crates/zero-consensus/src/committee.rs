@@ -23,10 +23,7 @@ pub struct Committee {
 impl Committee {
     pub fn new(validators: Vec<ValidatorInfo>) -> Self {
         let total_stake = validators.iter().map(|v| v.stake).sum();
-        let index_by_key = validators
-            .iter()
-            .map(|v| (v.public_key, v.index))
-            .collect();
+        let index_by_key = validators.iter().map(|v| (v.public_key, v.index)).collect();
         Self {
             validators,
             index_by_key,

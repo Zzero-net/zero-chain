@@ -71,7 +71,12 @@ impl BridgeOp {
     /// Format: "ZERO-BRIDGE:" || op_type || ":" || fields
     pub fn signing_bytes(&self) -> Vec<u8> {
         match self {
-            BridgeOp::Mint { recipient, amount, source_chain, source_tx } => {
+            BridgeOp::Mint {
+                recipient,
+                amount,
+                source_chain,
+                source_tx,
+            } => {
                 let mut buf = Vec::new();
                 buf.extend_from_slice(b"ZERO-BRIDGE:MINT:");
                 buf.extend_from_slice(recipient);
@@ -81,7 +86,12 @@ impl BridgeOp {
                 buf.extend_from_slice(source_tx.as_bytes());
                 buf
             }
-            BridgeOp::Burn { sender, amount, dest_chain, dest_address } => {
+            BridgeOp::Burn {
+                sender,
+                amount,
+                dest_chain,
+                dest_address,
+            } => {
                 let mut buf = Vec::new();
                 buf.extend_from_slice(b"ZERO-BRIDGE:BURN:");
                 buf.extend_from_slice(sender);
@@ -111,7 +121,11 @@ impl TrinityValidatorSet {
     /// Create a new Trinity Validator set with exactly 3 validators.
     pub fn new(validators: [PubKey; 3]) -> Self {
         let validator_set: HashSet<PubKey> = validators.iter().copied().collect();
-        assert_eq!(validator_set.len(), 3, "Trinity Validators must be 3 unique keys");
+        assert_eq!(
+            validator_set.len(),
+            3,
+            "Trinity Validators must be 3 unique keys"
+        );
         Self {
             validators,
             validator_set,
@@ -132,10 +146,7 @@ impl TrinityValidatorSet {
     /// Verify that an attestation has sufficient valid Trinity Validator signatures.
     /// Each signature is verified against the canonical signing bytes of the operation.
     /// Returns Ok(()) if 2-of-3 have signed validly.
-    pub fn verify_attestation(
-        &self,
-        attestation: &BridgeAttestation,
-    ) -> Result<(), BridgeError> {
+    pub fn verify_attestation(&self, attestation: &BridgeAttestation) -> Result<(), BridgeError> {
         let msg = attestation.operation.signing_bytes();
         let mut seen = HashSet::new();
         let mut valid_count = 0;
@@ -170,7 +181,11 @@ impl TrinityValidatorSet {
     /// In production, this would require 2-of-3 signatures from current validators.
     pub fn rotate(&mut self, new_validators: [PubKey; 3]) {
         let new_set: HashSet<PubKey> = new_validators.iter().copied().collect();
-        assert_eq!(new_set.len(), 3, "new Trinity Validators must be 3 unique keys");
+        assert_eq!(
+            new_set.len(),
+            3,
+            "new Trinity Validators must be 3 unique keys"
+        );
         self.validators = new_validators;
         self.validator_set = new_set;
     }
@@ -185,7 +200,11 @@ impl BridgeAttestation {
     }
 
     /// Add a guardian's signature to this attestation.
-    pub fn add_signature(&mut self, guardian: PubKey, signature: [u8; 64]) -> Result<(), BridgeError> {
+    pub fn add_signature(
+        &mut self,
+        guardian: PubKey,
+        signature: [u8; 64],
+    ) -> Result<(), BridgeError> {
         if self.signatures.iter().any(|(pk, _)| *pk == guardian) {
             return Err(BridgeError::DuplicateSignature);
         }
@@ -293,7 +312,9 @@ mod tests {
 
         let mut att = BridgeAttestation::new(op.clone());
         att.add_signature(pks[0], sign_op(&sks[0], &op)).unwrap();
-        let err = att.add_signature(pks[0], sign_op(&sks[0], &op)).unwrap_err();
+        let err = att
+            .add_signature(pks[0], sign_op(&sks[0], &op))
+            .unwrap_err();
         assert!(matches!(err, BridgeError::DuplicateSignature));
     }
 
@@ -307,7 +328,8 @@ mod tests {
 
         let mut att = BridgeAttestation::new(op.clone());
         att.add_signature(pks[0], sign_op(&sks[0], &op)).unwrap();
-        att.add_signature(imposter_pk, sign_op(&imposter_sk, &op)).unwrap();
+        att.add_signature(imposter_pk, sign_op(&imposter_sk, &op))
+            .unwrap();
 
         let err = set.verify_attestation(&att).unwrap_err();
         assert!(matches!(err, BridgeError::NotTrinityValidator(_)));

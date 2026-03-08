@@ -1,20 +1,20 @@
 use std::sync::Arc;
 
 use tonic::{
-    transport::{Certificate, Channel, ClientTlsConfig, Identity},
     Request, Response, Status,
+    transport::{Certificate, Channel, ClientTlsConfig, Identity},
 };
 use tracing::{debug, info, warn};
 
 use zero_consensus::node::GossipHandler;
 use zero_types::{
-    block::{BlockRef, Event},
     Transfer,
+    block::{BlockRef, Event},
 };
 
 use crate::proto::{
-    zero_gossip_server::ZeroGossip, GossipAck, GossipBlockRef, GossipEvent, GossipTransfer,
-    PullRequest, PullResponse,
+    GossipAck, GossipBlockRef, GossipEvent, GossipTransfer, PullRequest, PullResponse,
+    zero_gossip_server::ZeroGossip,
 };
 
 /// gRPC gossip server implementation.
@@ -52,13 +52,7 @@ impl<H: GossipHandler> ZeroGossip for GossipServer<H> {
 
         match self.handler.handle_event(event, transfers) {
             Ok(accepted) => {
-                info!(
-                    round,
-                    author,
-                    txs,
-                    accepted,
-                    "Gossip event received"
-                );
+                info!(round, author, txs, accepted, "Gossip event received");
                 Ok(Response::new(GossipAck {
                     accepted,
                     reason: String::new(),
@@ -79,9 +73,7 @@ impl<H: GossipHandler> ZeroGossip for GossipServer<H> {
         request: Request<PullRequest>,
     ) -> Result<Response<PullResponse>, Status> {
         let req = request.into_inner();
-        let events = self
-            .handler
-            .get_events_from(req.from_round, req.max_events);
+        let events = self.handler.get_events_from(req.from_round, req.max_events);
 
         let gossip_events: Vec<GossipEvent> = events
             .into_iter()
@@ -171,11 +163,7 @@ impl GossipClient {
         Ok(results)
     }
 
-    async fn push_to_peer(
-        &self,
-        peer: &str,
-        msg: GossipEvent,
-    ) -> Result<GossipAck, tonic::Status> {
+    async fn push_to_peer(&self, peer: &str, msg: GossipEvent) -> Result<GossipAck, tonic::Status> {
         let channel = self.connect(peer).await?;
         let mut client = crate::proto::zero_gossip_client::ZeroGossipClient::new(channel);
 
@@ -293,10 +281,9 @@ pub fn decode_gossip_event(msg: GossipEvent) -> Result<(Event, Vec<Transfer>), S
             .from
             .try_into()
             .map_err(|_| "from must be 32 bytes".to_string())?;
-        let to: [u8; 32] = t
-            .to
-            .try_into()
-            .map_err(|_| "to must be 32 bytes".to_string())?;
+        let to: [u8; 32] =
+            t.to.try_into()
+                .map_err(|_| "to must be 32 bytes".to_string())?;
         let sig: [u8; 64] = t
             .signature
             .try_into()
@@ -332,8 +319,16 @@ mod tests {
             author: 1,
             timestamp: 1234567890,
             parents: vec![
-                BlockRef { round: 4, author: 0, digest: [0xAA; 32] },
-                BlockRef { round: 4, author: 2, digest: [0xBB; 32] },
+                BlockRef {
+                    round: 4,
+                    author: 0,
+                    digest: [0xAA; 32],
+                },
+                BlockRef {
+                    round: 4,
+                    author: 2,
+                    digest: [0xBB; 32],
+                },
             ],
             transactions: vec![0, 1],
             digest: [0xCC; 32],
@@ -435,7 +430,11 @@ mod tests {
         };
         let result = decode_gossip_event(msg);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("parent digest must be 32 bytes"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("parent digest must be 32 bytes")
+        );
     }
 
     #[test]

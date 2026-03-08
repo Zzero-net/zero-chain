@@ -1,4 +1,4 @@
-use zero_types::{transfer::STORAGE_SIZE, Hash, Transfer};
+use zero_types::{Hash, Transfer, transfer::STORAGE_SIZE};
 
 /// Fixed-size ring buffer for the recent transfer log.
 ///
@@ -63,9 +63,7 @@ impl TransferLog {
         }
         let slot = (seq % self.capacity as u64) as usize;
         let offset = slot * STORAGE_SIZE;
-        let buf: &[u8; STORAGE_SIZE] = self.data[offset..offset + STORAGE_SIZE]
-            .try_into()
-            .unwrap();
+        let buf: &[u8; STORAGE_SIZE] = self.data[offset..offset + STORAGE_SIZE].try_into().unwrap();
         Some(Transfer::from_storage_bytes(buf))
     }
 
@@ -87,9 +85,8 @@ impl TransferLog {
             let slot = ((oldest + i as u64) % self.capacity as u64) as usize;
             if &self.hashes[slot] == hash {
                 let offset = slot * STORAGE_SIZE;
-                let buf: &[u8; STORAGE_SIZE] = self.data[offset..offset + STORAGE_SIZE]
-                    .try_into()
-                    .unwrap();
+                let buf: &[u8; STORAGE_SIZE] =
+                    self.data[offset..offset + STORAGE_SIZE].try_into().unwrap();
                 return Some((oldest + i as u64, Transfer::from_storage_bytes(buf)));
             }
         }
@@ -126,7 +123,10 @@ impl TransferLog {
 
     /// Get the N most recent transfers (newest first).
     pub fn recent(&self, n: usize) -> Vec<Transfer> {
-        self.recent_with_seq(n).into_iter().map(|(_, tx)| tx).collect()
+        self.recent_with_seq(n)
+            .into_iter()
+            .map(|(_, tx)| tx)
+            .collect()
     }
 
     /// Get the N most recent transfers with their sequence numbers (newest first).

@@ -18,8 +18,7 @@ pub fn load(path: &Path) -> Result<KeyPair, String> {
         .map_err(|e| format!("Failed to read key file {}: {}", path.display(), e))?;
 
     let hex_str = contents.trim();
-    let bytes = hex::decode(hex_str)
-        .map_err(|e| format!("Invalid hex in key file: {}", e))?;
+    let bytes = hex::decode(hex_str).map_err(|e| format!("Invalid hex in key file: {}", e))?;
 
     let secret: [u8; 32] = bytes
         .try_into()

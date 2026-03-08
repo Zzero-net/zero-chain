@@ -38,10 +38,7 @@ pub enum Anomaly {
         tx_hash: String,
     },
     /// Rapid successive releases (many releases in a short window)
-    RapidReleases {
-        count: usize,
-        window_secs: u64,
-    },
+    RapidReleases { count: usize, window_secs: u64 },
     /// Deposit-release mismatch: more released than deposited recently
     NetOutflow {
         token: String,
@@ -178,8 +175,8 @@ impl VaultWatcher {
 
         // Check: circuit breaker tiers (only if we know total_locked)
         if tracker.total_locked > 0 {
-            let pct_bps = (tracker.released_in_window as u128 * 10_000
-                / tracker.total_locked as u128) as u64;
+            let pct_bps =
+                (tracker.released_in_window as u128 * 10_000 / tracker.total_locked as u128) as u64;
 
             if pct_bps > 5000 {
                 // Elevated tier exceeded (>50%)
@@ -259,9 +256,9 @@ impl VaultWatcher {
 
     /// Get current tracking stats for a token.
     pub fn token_stats(&self, token: &str) -> Option<(u64, u64, u64)> {
-        self.trackers.get(token).map(|t| {
-            (t.released_in_window, t.deposited_in_window, t.total_locked)
-        })
+        self.trackers
+            .get(token)
+            .map(|t| (t.released_in_window, t.deposited_in_window, t.total_locked))
     }
 }
 
@@ -270,13 +267,16 @@ mod tests {
     use super::*;
 
     fn default_watcher() -> VaultWatcher {
-        VaultWatcher::new_with_start(WatcherConfig {
-            large_release_threshold: 1_000_000, // 1 USDC
-            rapid_release_count: 5,
-            rapid_window_secs: 60,
-            auto_pause_on_elevated: true,
-            poll_interval_ms: 1000,
-        }, 0) // Start window at 0 for deterministic tests
+        VaultWatcher::new_with_start(
+            WatcherConfig {
+                large_release_threshold: 1_000_000, // 1 USDC
+                rapid_release_count: 5,
+                rapid_window_secs: 60,
+                auto_pause_on_elevated: true,
+                poll_interval_ms: 1000,
+            },
+            0,
+        ) // Start window at 0 for deterministic tests
     }
 
     #[test]
@@ -292,7 +292,11 @@ mod tests {
         let mut w = default_watcher();
         w.update_total_locked("USDC", 100_000_000);
         let alerts = w.record_release("USDC", 5_000_000, "0xabc", 1000); // 5 USDC > 1 USDC threshold
-        assert!(alerts.iter().any(|(a, _)| matches!(a, Anomaly::LargeRelease { .. })));
+        assert!(
+            alerts
+                .iter()
+                .any(|(a, _)| matches!(a, Anomaly::LargeRelease { .. }))
+        );
     }
 
     #[test]
@@ -325,7 +329,11 @@ mod tests {
         w.record_release("USDC", 800_000, "0x01", 1000);
         w.record_release("USDC", 800_000, "0x02", 1001);
         let alerts = w.record_release("USDC", 800_000, "0x03", 1002);
-        assert!(alerts.iter().any(|(a, _)| matches!(a, Anomaly::NormalTierExceeded { .. })));
+        assert!(
+            alerts
+                .iter()
+                .any(|(a, _)| matches!(a, Anomaly::NormalTierExceeded { .. }))
+        );
     }
 
     #[test]
@@ -337,7 +345,11 @@ mod tests {
         }
         // 5th release triggers rapid detection
         let alerts = w.record_release("USDC", 100, "0x05", 1004);
-        assert!(alerts.iter().any(|(a, _)| matches!(a, Anomaly::RapidReleases { .. })));
+        assert!(
+            alerts
+                .iter()
+                .any(|(a, _)| matches!(a, Anomaly::RapidReleases { .. }))
+        );
     }
 
     #[test]
@@ -350,7 +362,11 @@ mod tests {
         // 24h later — window should reset
         let alerts = w.record_release("USDC", 500_000, "0x02", 1000 + 86401);
         // After reset, only 500_000 released = 5%, no tier alert
-        assert!(!alerts.iter().any(|(a, _)| matches!(a, Anomaly::NormalTierExceeded { .. })));
+        assert!(
+            !alerts
+                .iter()
+                .any(|(a, _)| matches!(a, Anomaly::NormalTierExceeded { .. }))
+        );
         assert_eq!(w.token_stats("USDC").unwrap().0, 500_000);
     }
 
@@ -361,7 +377,11 @@ mod tests {
         w.record_deposit("USDC", 100_000, 1000); // Small deposit
         // Release > 2x deposits
         let alerts = w.record_release("USDC", 500_000, "0x01", 1001);
-        assert!(alerts.iter().any(|(a, _)| matches!(a, Anomaly::NetOutflow { .. })));
+        assert!(
+            alerts
+                .iter()
+                .any(|(a, _)| matches!(a, Anomaly::NetOutflow { .. }))
+        );
     }
 
     #[test]
@@ -389,8 +409,16 @@ mod tests {
         let usdc_alerts = w.record_release("USDC", 2_500_000, "0x01", 1000); // 25% of USDC
         let usdt_alerts = w.record_release("USDT", 500_000, "0x02", 1000); // 2.5% of USDT (below thresholds)
         // USDC should trigger normal tier, USDT should not
-        assert!(usdc_alerts.iter().any(|(a, _)| matches!(a, Anomaly::NormalTierExceeded { .. })));
-        assert!(!usdt_alerts.iter().any(|(a, _)| matches!(a, Anomaly::NormalTierExceeded { .. })));
+        assert!(
+            usdc_alerts
+                .iter()
+                .any(|(a, _)| matches!(a, Anomaly::NormalTierExceeded { .. }))
+        );
+        assert!(
+            !usdt_alerts
+                .iter()
+                .any(|(a, _)| matches!(a, Anomaly::NormalTierExceeded { .. }))
+        );
         // Per-token tracking is independent
         let (usdc_released, _, _) = w.token_stats("USDC").unwrap();
         let (usdt_released, _, _) = w.token_stats("USDT").unwrap();

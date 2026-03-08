@@ -2,10 +2,10 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use parking_lot::RwLock;
-use tokio::time::{interval, Duration};
+use tokio::time::{Duration, interval};
 use tracing::{debug, info};
 
-use zero_types::{block::Event, Transfer};
+use zero_types::{Transfer, block::Event};
 
 use crate::Node;
 
@@ -13,9 +13,17 @@ use crate::Node;
 /// Defined here so the event loop doesn't depend on the network crate.
 pub trait Broadcaster: Send + Sync + 'static {
     /// Broadcast an event + its transfers to peers. Returns (success_count, total_peers).
-    fn broadcast(&self, event: &Event, transfers: &[Transfer]) -> impl std::future::Future<Output = (usize, usize)> + Send;
+    fn broadcast(
+        &self,
+        event: &Event,
+        transfers: &[Transfer],
+    ) -> impl std::future::Future<Output = (usize, usize)> + Send;
     /// Pull events from peers for catch-up. Tries all peers, returns merged results.
-    fn pull_catchup(&self, from_round: u32, max_events: u32) -> impl std::future::Future<Output = Vec<(Event, Vec<Transfer>)>> + Send;
+    fn pull_catchup(
+        &self,
+        from_round: u32,
+        max_events: u32,
+    ) -> impl std::future::Future<Output = Vec<(Event, Vec<Transfer>)>> + Send;
     /// Number of known peers.
     fn peer_count(&self) -> usize;
 }

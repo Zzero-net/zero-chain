@@ -2,12 +2,12 @@ use std::collections::HashMap;
 
 use zero_crypto::{hash::chain_block_hash, verify::verify_transfer};
 use zero_types::{
+    Hash, PubKey, TimestampMs, Transfer, ZeroError,
     params::{
         ACCOUNT_CREATION_FEE, BRIDGE_CIRCUIT_BREAKER_BPS, DUST_PRUNE_DAYS, DUST_THRESHOLD,
         FEE_SHARE_BRIDGE_OPS_BPS, FEE_SHARE_VALIDATORS_BPS, MAX_BRIDGE_MINT_PER_HOUR,
         MAX_TRANSFER_AMOUNT, MIN_SEND_BALANCE, TRANSFER_FEE,
     },
-    Hash, PubKey, TimestampMs, Transfer, ZeroError,
 };
 
 use crate::{AccountStore, RateLimiter, StakeStore, TransferLog};
@@ -185,7 +185,8 @@ impl TransferExecutor {
         );
 
         // Apply state changes
-        self.accounts.debit(&tx.from, tx.amount, fee, sender_new_head);
+        self.accounts
+            .debit(&tx.from, tx.amount, fee, sender_new_head);
         self.accounts.credit(&tx.to, tx.amount, receiver_new_head);
 
         // Append to log
@@ -224,10 +225,7 @@ impl TransferExecutor {
 
     /// Execute a batch of transfers. Returns results for successful ones
     /// and errors for failed ones.
-    pub fn execute_batch(
-        &mut self,
-        transfers: &[Transfer],
-    ) -> Vec<Result<ExecResult, ZeroError>> {
+    pub fn execute_batch(&mut self, transfers: &[Transfer]) -> Vec<Result<ExecResult, ZeroError>> {
         transfers.iter().map(|tx| self.execute(tx)).collect()
     }
 
@@ -380,8 +378,7 @@ impl TransferExecutor {
         let window_duration_ms: u64 = 24 * 60 * 60 * 1000;
 
         // Reset window if expired or not yet initialized
-        if self.bridge_window_start == 0
-            || now_ms >= self.bridge_window_start + window_duration_ms
+        if self.bridge_window_start == 0 || now_ms >= self.bridge_window_start + window_duration_ms
         {
             self.bridge_minted_in_window = 0;
             self.bridge_window_start = now_ms;

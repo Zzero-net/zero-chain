@@ -9,8 +9,8 @@ use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
 use tracing::{error, info, warn};
 
 use zero_consensus::{
-    committee::ValidatorInfo, event_loop, event_loop::Broadcaster, Committee, Node,
-    NodeGossipHandler,
+    Committee, Node, NodeGossipHandler, committee::ValidatorInfo, event_loop,
+    event_loop::Broadcaster,
 };
 use zero_crypto::keyfile;
 use zero_network::{
@@ -19,7 +19,7 @@ use zero_network::{
     server::ZeroServer,
 };
 use zero_storage::snapshot;
-use zero_types::{block::Event, GenesisConfig, NodeConfig, Transfer};
+use zero_types::{GenesisConfig, NodeConfig, Transfer, block::Event};
 
 /// Newtype wrapper to implement Broadcaster for GossipClient (orphan rule).
 struct GossipBroadcaster(GossipClient);
@@ -55,8 +55,8 @@ async fn main() -> anyhow::Result<()> {
     let config_str = std::fs::read_to_string(&config_path)
         .map_err(|e| anyhow::anyhow!("Failed to read config {}: {}", config_path, e))?;
 
-    let config = NodeConfig::from_toml(&config_str)
-        .map_err(|e| anyhow::anyhow!("Invalid config: {}", e))?;
+    let config =
+        NodeConfig::from_toml(&config_str).map_err(|e| anyhow::anyhow!("Invalid config: {}", e))?;
 
     info!(
         listen = config.listen,
@@ -125,8 +125,7 @@ async fn main() -> anyhow::Result<()> {
             Ok((store, total_written)) => {
                 info!(
                     accounts = store.len(),
-                    total_written,
-                    "Restored from snapshot"
+                    total_written, "Restored from snapshot"
                 );
                 // Replace the executor's account store with loaded data
                 let n = node.read();
@@ -245,11 +244,7 @@ async fn main() -> anyhow::Result<()> {
             })
             .collect();
 
-        bridge_api::start_bridge_api(
-            Arc::clone(&node),
-            trinity_pubkeys,
-            bridge_listen.clone(),
-        );
+        bridge_api::start_bridge_api(Arc::clone(&node), trinity_pubkeys, bridge_listen.clone());
     }
 
     // Start periodic snapshot saving

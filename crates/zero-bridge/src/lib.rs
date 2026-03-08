@@ -15,16 +15,16 @@
 //!   3. Share signature with other Trinity Validators
 //!   4. Once 2-of-3 collected, submit `release()` to vault contract
 
-pub mod eip712;
-pub mod events;
 pub mod config;
 pub mod coordinator;
-pub mod rpc;
+pub mod eip712;
+pub mod events;
 pub mod http;
+pub mod rpc;
 pub mod service;
 pub mod watcher;
 
-pub use eip712::{Eip712Signer, ReleaseSigning, DomainSeparator, ReleaseParams};
-pub use events::{DepositEvent, ReleaseEvent, parse_deposit_log, parse_release_log};
 pub use config::BridgeConfig;
-pub use coordinator::{SignatureCollector, PendingOperation};
+pub use coordinator::{PendingOperation, SignatureCollector};
+pub use eip712::{DomainSeparator, Eip712Signer, ReleaseParams, ReleaseSigning};
+pub use events::{DepositEvent, ReleaseEvent, parse_deposit_log, parse_release_log};

@@ -3,7 +3,7 @@
 //! Matches the Solidity ZeroVault contract's EIP-712 domain and types exactly.
 //! Trinity Validators use this to sign release messages with ECDSA (secp256k1).
 
-use k256::ecdsa::{SigningKey, Signature};
+use k256::ecdsa::{Signature, SigningKey};
 use sha3::{Digest, Keccak256};
 use thiserror::Error;
 
@@ -25,10 +25,8 @@ pub struct DomainSeparator {
 /// Pre-computed type hash: keccak256("Release(address token,uint256 amount,address recipient,bytes32 bridgeId)")
 /// Matches ZeroVault.RELEASE_TYPEHASH (0xb0eff49e...).
 pub const RELEASE_TYPEHASH: [u8; 32] = [
-    0xb0, 0xef, 0xf4, 0x9e, 0x45, 0x23, 0x78, 0x91,
-    0x05, 0xf5, 0x4c, 0xf6, 0x1c, 0x1c, 0x1f, 0x3e,
-    0x5d, 0xa6, 0x4c, 0x07, 0x5c, 0x8c, 0xca, 0xc9,
-    0x5e, 0x8d, 0x47, 0x90, 0x85, 0xf4, 0xbc, 0x57,
+    0xb0, 0xef, 0xf4, 0x9e, 0x45, 0x23, 0x78, 0x91, 0x05, 0xf5, 0x4c, 0xf6, 0x1c, 0x1c, 0x1f, 0x3e,
+    0x5d, 0xa6, 0x4c, 0x07, 0x5c, 0x8c, 0xca, 0xc9, 0x5e, 0x8d, 0x47, 0x90, 0x85, 0xf4, 0xbc, 0x57,
 ];
 
 /// Compute keccak256 of input bytes.
@@ -181,8 +179,8 @@ impl Eip712Signer {
         chain_id: u64,
         vault_address: [u8; 20],
     ) -> Result<Self, Eip712Error> {
-        let signing_key = SigningKey::from_bytes(private_key.into())
-            .map_err(|_| Eip712Error::InvalidKey)?;
+        let signing_key =
+            SigningKey::from_bytes(private_key.into()).map_err(|_| Eip712Error::InvalidKey)?;
         let address = verifying_key_to_address(signing_key.verifying_key());
 
         Ok(Self {
@@ -198,7 +196,8 @@ impl Eip712Signer {
         let digest = eip712_digest(&self.domain, &struct_hash);
 
         // Sign the digest
-        let (sig, recovery_id) = self.signing_key
+        let (sig, recovery_id) = self
+            .signing_key
             .sign_prehash_recoverable(&digest)
             .map_err(|e| Eip712Error::SigningFailed(e.to_string()))?;
 
@@ -231,8 +230,8 @@ pub fn recover_signer(digest: &[u8; 32], signature: &[u8; 65]) -> Result<[u8; 20
     let recovery_id = RecoveryId::try_from(v.wrapping_sub(27))
         .map_err(|e| Eip712Error::SigningFailed(e.to_string()))?;
 
-    let sig = Signature::from_bytes(r_s.into())
-        .map_err(|e| Eip712Error::SigningFailed(e.to_string()))?;
+    let sig =
+        Signature::from_bytes(r_s.into()).map_err(|e| Eip712Error::SigningFailed(e.to_string()))?;
 
     let recovered_key = VerifyingKey::recover_from_prehash(digest, &sig, recovery_id)
         .map_err(|e| Eip712Error::SigningFailed(e.to_string()))?;
@@ -283,7 +282,8 @@ mod tests {
     fn release_typehash_matches_solidity() {
         let hash = release_typehash();
         // This should match: keccak256("Release(address token,uint256 amount,address recipient,bytes32 bridgeId)")
-        let expected = keccak256(b"Release(address token,uint256 amount,address recipient,bytes32 bridgeId)");
+        let expected =
+            keccak256(b"Release(address token,uint256 amount,address recipient,bytes32 bridgeId)");
         assert_eq!(hash, expected);
     }
 

@@ -51,7 +51,9 @@ pub enum ZeroError {
     #[error("crypto error: {0}")]
     Crypto(String),
 
-    #[error("bridge circuit breaker: requested {requested}, remaining {remaining} of {window_max} in 24h window")]
+    #[error(
+        "bridge circuit breaker: requested {requested}, remaining {remaining} of {window_max} in 24h window"
+    )]
     BridgeCircuitBreaker {
         requested: u64,
         remaining: u64,

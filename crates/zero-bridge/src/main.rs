@@ -25,7 +25,8 @@ async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
     // Parse simple CLI args
-    let config_path = args.iter()
+    let config_path = args
+        .iter()
         .position(|a| a == "--config")
         .and_then(|i| args.get(i + 1))
         .map(PathBuf::from)
@@ -43,8 +44,8 @@ async fn main() -> anyhow::Result<()> {
     // Load config
     let config_str = std::fs::read_to_string(&config_path)
         .with_context(|| format!("failed to read config: {}", config_path.display()))?;
-    let config: BridgeConfig = serde_json::from_str(&config_str)
-        .with_context(|| "failed to parse config")?;
+    let config: BridgeConfig =
+        serde_json::from_str(&config_str).with_context(|| "failed to parse config")?;
 
     info!(
         vaults = config.vaults.len(),

@@ -13,10 +13,7 @@ use zero_consensus::Node;
 use zero_storage::{BridgeOp, RateLimiter, TransferExecutor};
 use zero_types::Transfer;
 
-use crate::proto::{
-    zero_service_server::ZeroService,
-    *,
-};
+use crate::proto::{zero_service_server::ZeroService, *};
 
 /// Per-IP rate limiter: sliding 1-second window, rejects above threshold.
 struct IpRateLimiter {
@@ -26,7 +23,10 @@ struct IpRateLimiter {
 
 impl IpRateLimiter {
     fn new(max_per_sec: u32) -> Self {
-        Self { windows: HashMap::new(), max_per_sec }
+        Self {
+            windows: HashMap::new(),
+            max_per_sec,
+        }
     }
 
     fn check(&mut self, ip: IpAddr, now_ms: u64) -> Result<(), u32> {
@@ -43,7 +43,8 @@ impl IpRateLimiter {
     }
 
     fn cleanup(&mut self, now_ms: u64) {
-        self.windows.retain(|_, (start, _)| now_ms < *start + 10_000);
+        self.windows
+            .retain(|_, (start, _)| now_ms < *start + 10_000);
     }
 }
 
@@ -105,9 +106,10 @@ impl ZeroServer {
             let now = now_ms();
             if let Err(rate) = self.ip_limiter.lock().check(ip, now) {
                 warn!(ip = %ip, rate, "IP rate limit exceeded");
-                return Err(Status::resource_exhausted(
-                    format!("rate limit exceeded: {} requests/sec from {}", rate, ip),
-                ));
+                return Err(Status::resource_exhausted(format!(
+                    "rate limit exceeded: {} requests/sec from {}",
+                    rate, ip
+                )));
             }
         }
         Ok(())
@@ -117,10 +119,14 @@ impl ZeroServer {
     fn check_account_rate(&self, account: &[u8; 32]) -> Result<(), Status> {
         let now = now_ms();
         if let Err(rate) = self.account_limiter.lock().check(account, now) {
-            warn!(account = hex::encode(account), rate, "account rate limit exceeded");
-            return Err(Status::resource_exhausted(
-                format!("account rate limit exceeded: {} tx/sec", rate),
-            ));
+            warn!(
+                account = hex::encode(account),
+                rate, "account rate limit exceeded"
+            );
+            return Err(Status::resource_exhausted(format!(
+                "account rate limit exceeded: {} tx/sec",
+                rate
+            )));
         }
         Ok(())
     }
@@ -515,16 +521,28 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    use zero_consensus::committee::{Committee, ValidatorInfo};
     use zero_consensus::Node;
+    use zero_consensus::committee::{Committee, ValidatorInfo};
     use zero_crypto::KeyPair;
     use zero_storage::TransferExecutor;
 
     fn test_committee_3() -> Arc<Committee> {
         Arc::new(Committee::new(vec![
-            ValidatorInfo { index: 0, public_key: [1u8; 32], stake: 100 },
-            ValidatorInfo { index: 1, public_key: [2u8; 32], stake: 100 },
-            ValidatorInfo { index: 2, public_key: [3u8; 32], stake: 100 },
+            ValidatorInfo {
+                index: 0,
+                public_key: [1u8; 32],
+                stake: 100,
+            },
+            ValidatorInfo {
+                index: 1,
+                public_key: [2u8; 32],
+                stake: 100,
+            },
+            ValidatorInfo {
+                index: 2,
+                public_key: [3u8; 32],
+                stake: 100,
+            },
         ]))
     }
 
@@ -790,8 +808,16 @@ mod tests {
         };
         let req2 = req1.clone();
 
-        let resp1 = server.bridge_in(Request::new(req1)).await.unwrap().into_inner();
-        let resp2 = server.bridge_in(Request::new(req2)).await.unwrap().into_inner();
+        let resp1 = server
+            .bridge_in(Request::new(req1))
+            .await
+            .unwrap()
+            .into_inner();
+        let resp2 = server
+            .bridge_in(Request::new(req2))
+            .await
+            .unwrap()
+            .into_inner();
         assert_eq!(resp1.bridge_id, resp2.bridge_id);
     }
 
@@ -931,7 +957,9 @@ mod tests {
 
         // Verify balance was burned
         let balance = server
-            .get_balance(Request::new(GetBalanceRequest { account: pk.to_vec() }))
+            .get_balance(Request::new(GetBalanceRequest {
+                account: pk.to_vec(),
+            }))
             .await
             .unwrap()
             .into_inner()

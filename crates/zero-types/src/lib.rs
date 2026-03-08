@@ -1,15 +1,15 @@
-pub mod transfer;
 pub mod account;
 pub mod block;
+pub mod config;
 pub mod error;
 pub mod params;
-pub mod config;
+pub mod transfer;
 
-pub use transfer::Transfer;
 pub use account::Account;
 pub use block::{BlockHash, BlockRef};
+pub use config::{GenesisConfig, NodeConfig};
 pub use error::ZeroError;
-pub use config::{NodeConfig, GenesisConfig};
+pub use transfer::Transfer;
 
 /// Public key: 32-byte Ed25519 public key.
 pub type PubKey = [u8; 32];

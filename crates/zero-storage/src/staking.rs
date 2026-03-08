@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use zero_types::{
-    params::{MIN_VALIDATOR_STAKE, UNBONDING_PERIOD_SECS},
     PubKey, TimestampMs,
+    params::{MIN_VALIDATOR_STAKE, UNBONDING_PERIOD_SECS},
 };
 
 /// An entry in the unbonding queue.
@@ -54,7 +54,9 @@ impl StakeStore {
         }
 
         // Deduct from active stake
-        let entry = self.stakes.get_mut(validator)
+        let entry = self
+            .stakes
+            .get_mut(validator)
             .expect("validator stake must exist after balance check");
         *entry -= amount;
         if *entry == 0 {
@@ -165,7 +167,6 @@ impl StakeStore {
 
         total_slashed
     }
-
 }
 
 impl Default for StakeStore {

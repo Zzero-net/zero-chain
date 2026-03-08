@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use zero_types::{
-    block::{BlockRef, Event},
     Round, ValidatorIndex,
+    block::{BlockRef, Event},
 };
 
 use crate::committee::Committee;
@@ -172,12 +172,7 @@ impl Dag {
     }
 
     /// Check if `from` transitively references `target` within `max_depth` hops.
-    fn references_transitively(
-        &self,
-        from: &BlockRef,
-        target: &BlockRef,
-        max_depth: u32,
-    ) -> bool {
+    fn references_transitively(&self, from: &BlockRef, target: &BlockRef, max_depth: u32) -> bool {
         if max_depth == 0 {
             return false;
         }
@@ -203,11 +198,7 @@ impl Dag {
             return;
         }
         let cutoff = self.last_finalized_round - 10;
-        let old_rounds: Vec<Round> = self
-            .rounds
-            .range(..cutoff)
-            .map(|(&r, _)| r)
-            .collect();
+        let old_rounds: Vec<Round> = self.rounds.range(..cutoff).map(|(&r, _)| r).collect();
 
         for round in old_rounds {
             if let Some(authors) = self.rounds.remove(&round) {
@@ -245,9 +236,21 @@ mod tests {
 
     fn test_committee_3() -> Committee {
         Committee::new(vec![
-            ValidatorInfo { index: 0, public_key: [1u8; 32], stake: 100 },
-            ValidatorInfo { index: 1, public_key: [2u8; 32], stake: 100 },
-            ValidatorInfo { index: 2, public_key: [3u8; 32], stake: 100 },
+            ValidatorInfo {
+                index: 0,
+                public_key: [1u8; 32],
+                stake: 100,
+            },
+            ValidatorInfo {
+                index: 1,
+                public_key: [2u8; 32],
+                stake: 100,
+            },
+            ValidatorInfo {
+                index: 2,
+                public_key: [3u8; 32],
+                stake: 100,
+            },
         ])
     }
 

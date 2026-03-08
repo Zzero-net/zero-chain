@@ -74,17 +74,15 @@ impl BridgeConfig {
 impl Default for BridgeConfig {
     fn default() -> Self {
         Self {
-            vaults: vec![
-                VaultConfig {
-                    chain: "base-sepolia".into(),
-                    chain_id: 84532,
-                    rpc_url: "https://sepolia.base.org".into(),
-                    vault_address: "0000000000000000000000000000000000000000".into(),
-                    token_address: "0000000000000000000000000000000000000000".into(),
-                    token_decimals: 6,
-                    confirmations: 12,
-                },
-            ],
+            vaults: vec![VaultConfig {
+                chain: "base-sepolia".into(),
+                chain_id: 84532,
+                rpc_url: "https://sepolia.base.org".into(),
+                vault_address: "0000000000000000000000000000000000000000".into(),
+                token_address: "0000000000000000000000000000000000000000".into(),
+                token_decimals: 6,
+                confirmations: 12,
+            }],
             trinity: TrinityConfig {
                 ed25519_key_file: "trinity_ed25519.key".into(),
                 ecdsa_key_file: "trinity_ecdsa.key".into(),
@@ -115,12 +113,14 @@ mod tests {
 
     #[test]
     fn vault_address_parsing() {
-        let addr = BridgeConfig::vault_address_bytes("0xaabbccdd11223344556677889900aabbccddeeff").unwrap();
+        let addr = BridgeConfig::vault_address_bytes("0xaabbccdd11223344556677889900aabbccddeeff")
+            .unwrap();
         assert_eq!(addr[0], 0xaa);
         assert_eq!(addr[19], 0xff);
 
         // Without 0x prefix
-        let addr2 = BridgeConfig::vault_address_bytes("aabbccdd11223344556677889900aabbccddeeff").unwrap();
+        let addr2 =
+            BridgeConfig::vault_address_bytes("aabbccdd11223344556677889900aabbccddeeff").unwrap();
         assert_eq!(addr, addr2);
     }
 }

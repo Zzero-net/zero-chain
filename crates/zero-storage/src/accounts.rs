@@ -33,18 +33,12 @@ impl AccountStore {
 
     /// Get balance for an account. Returns 0 for unknown accounts.
     pub fn balance(&self, key: &PubKey) -> Amount {
-        self.accounts
-            .get(key)
-            .map(|r| r.balance)
-            .unwrap_or(0)
+        self.accounts.get(key).map(|r| r.balance).unwrap_or(0)
     }
 
     /// Get nonce for an account. Returns 0 for unknown accounts.
     pub fn nonce(&self, key: &PubKey) -> Nonce {
-        self.accounts
-            .get(key)
-            .map(|r| r.nonce)
-            .unwrap_or(0)
+        self.accounts.get(key).map(|r| r.nonce).unwrap_or(0)
     }
 
     /// Insert or update an account. Used during state transitions.
@@ -107,10 +101,7 @@ impl AccountStore {
 
     /// Total Z supply across all accounts.
     pub fn total_supply(&self) -> u64 {
-        self.accounts
-            .iter()
-            .map(|r| r.balance as u64)
-            .sum()
+        self.accounts.iter().map(|r| r.balance as u64).sum()
     }
 
     /// Iterate all accounts (snapshot support). Returns (pubkey, account) pairs.

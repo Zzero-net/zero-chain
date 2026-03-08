@@ -72,13 +72,16 @@ impl Default for FullWatcherConfig {
 fn load_pause_key(path: &str) -> Result<[u8; 32], anyhow::Error> {
     let raw = std::fs::read(path)
         .map_err(|e| anyhow::anyhow!("failed to read pause key file '{}': {}", path, e))?;
-    let hex_str: String = raw.iter().copied()
+    let hex_str: String = raw
+        .iter()
+        .copied()
         .filter(|b| !b.is_ascii_whitespace())
         .map(|b| b as char)
         .collect();
-    let bytes = hex::decode(&hex_str)
-        .map_err(|e| anyhow::anyhow!("invalid pause key hex: {}", e))?;
-    let key: [u8; 32] = bytes.try_into()
+    let bytes =
+        hex::decode(&hex_str).map_err(|e| anyhow::anyhow!("invalid pause key hex: {}", e))?;
+    let key: [u8; 32] = bytes
+        .try_into()
         .map_err(|_| anyhow::anyhow!("pause key must be 32 bytes"))?;
     Ok(key)
 }
@@ -94,7 +97,8 @@ async fn main() -> anyhow::Result<()> {
 
     let args: Vec<String> = std::env::args().collect();
 
-    let config_path = args.iter()
+    let config_path = args
+        .iter()
         .position(|a| a == "--config")
         .and_then(|i| args.get(i + 1))
         .map(PathBuf::from)
@@ -104,7 +108,10 @@ async fn main() -> anyhow::Result<()> {
         let config = FullWatcherConfig::default();
         let json = serde_json::to_string_pretty(&config)?;
         std::fs::write(&config_path, &json)?;
-        println!("Default watcher config written to {}", config_path.display());
+        println!(
+            "Default watcher config written to {}",
+            config_path.display()
+        );
         return Ok(());
     }
 
@@ -159,7 +166,10 @@ async fn main() -> anyhow::Result<()> {
     let mut status_interval = tokio::time::interval(Duration::from_secs(60));
     status_interval.tick().await;
 
-    info!("vault watcher running — monitoring {} vault(s)", chain_states.len());
+    info!(
+        "vault watcher running — monitoring {} vault(s)",
+        chain_states.len()
+    );
 
     loop {
         tokio::select! {

@@ -186,7 +186,7 @@ impl DepositEvent {
         match token_decimals {
             6 => self.amount / 100, // USDC/USDT: 1_000_000 raw = 10_000 Z units = 100 Z
             18 => self.amount / 10_000_000_000_000_000, // DAI-like
-            _ => self.amount, // Fallback, should not happen
+            _ => self.amount,       // Fallback, should not happen
         }
     }
 
@@ -275,7 +275,10 @@ mod tests {
         let (topics, _) = make_test_log();
         let short_data = vec![0u8; 32]; // Only 32 bytes, need 64
         let result = parse_deposit_log(&topics, &short_data, "base", [0; 32], 0);
-        assert!(matches!(result, Err(EventParseError::InsufficientData { .. })));
+        assert!(matches!(
+            result,
+            Err(EventParseError::InsufficientData { .. })
+        ));
     }
 
     #[test]
@@ -381,6 +384,9 @@ mod tests {
         let (topics, _) = make_test_release_log();
         let short_data = vec![0u8; 32];
         let result = parse_release_log(&topics, &short_data, "base", [0; 32], 0);
-        assert!(matches!(result, Err(EventParseError::InsufficientData { .. })));
+        assert!(matches!(
+            result,
+            Err(EventParseError::InsufficientData { .. })
+        ));
     }
 }

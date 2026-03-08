@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use crate::eip712::{recover_signer, Eip712Error};
+use crate::eip712::{Eip712Error, recover_signer};
 
 /// Metadata for a pending mint operation (deposit details needed for POST submission).
 #[derive(Debug, Clone)]
@@ -123,10 +123,13 @@ impl SignatureCollector {
         op_id: &[u8; 32],
         signature: &[u8; 65],
     ) -> Result<SignatureResult, CoordinatorError> {
-        let op = self.pending.get_mut(op_id)
+        let op = self
+            .pending
+            .get_mut(op_id)
             .ok_or_else(|| CoordinatorError::OperationNotFound(hex::encode(op_id)))?;
 
-        let digest = op.digest
+        let digest = op
+            .digest
             .ok_or_else(|| CoordinatorError::OperationNotFound("no digest set".into()))?;
 
         // Recover signer from signature
@@ -165,7 +168,9 @@ impl SignatureCollector {
         pubkey: &[u8; 32],
         signature: &[u8; 64],
     ) -> Result<SignatureResult, CoordinatorError> {
-        let op = self.pending.get_mut(op_id)
+        let op = self
+            .pending
+            .get_mut(op_id)
             .ok_or_else(|| CoordinatorError::OperationNotFound(hex::encode(op_id)))?;
 
         // Verify pubkey is a known Trinity Validator
@@ -201,7 +206,8 @@ impl SignatureCollector {
             None => return Vec::new(),
         };
 
-        let mut entries: Vec<([u8; 20], [u8; 65])> = op.ecdsa_signatures
+        let mut entries: Vec<([u8; 20], [u8; 65])> = op
+            .ecdsa_signatures
             .iter()
             .map(|(addr, sig)| (*addr, *sig))
             .collect();
@@ -251,7 +257,8 @@ impl SignatureCollector {
 
     /// Clean up stale operations older than max_age_secs.
     pub fn cleanup_stale(&mut self, now: u64, max_age_secs: u64) {
-        self.pending.retain(|_, op| now - op.created_at < max_age_secs);
+        self.pending
+            .retain(|_, op| now - op.created_at < max_age_secs);
     }
 }
 
@@ -261,9 +268,12 @@ mod tests {
     use crate::eip712::{Eip712Signer, ReleaseParams};
 
     fn test_keys() -> ([u8; 32], [u8; 32], [u8; 32]) {
-        let mut k1 = [0u8; 32]; k1[31] = 1;
-        let mut k2 = [0u8; 32]; k2[31] = 2;
-        let mut k3 = [0u8; 32]; k3[31] = 3;
+        let mut k1 = [0u8; 32];
+        k1[31] = 1;
+        let mut k2 = [0u8; 32];
+        k2[31] = 2;
+        let mut k3 = [0u8; 32];
+        k3[31] = 3;
         (k1, k2, k3)
     }
 
@@ -304,13 +314,22 @@ mod tests {
         collector.create_operation(op_id, OpType::Release, Some(signed1.digest), 1000);
 
         // First signature → pending
-        let result = collector.add_ecdsa_signature(&op_id, &signed1.signature).unwrap();
-        assert!(matches!(result, SignatureResult::Pending { have: 1, need: 2 }));
+        let result = collector
+            .add_ecdsa_signature(&op_id, &signed1.signature)
+            .unwrap();
+        assert!(matches!(
+            result,
+            SignatureResult::Pending { have: 1, need: 2 }
+        ));
 
         // Second signature → threshold met
-        let result = collector.add_ecdsa_signature(&op_id, &signed2.signature).unwrap();
+        let result = collector
+            .add_ecdsa_signature(&op_id, &signed2.signature)
+            .unwrap();
         match result {
-            SignatureResult::ThresholdMet { ecdsa_sigs_sorted, .. } => {
+            SignatureResult::ThresholdMet {
+                ecdsa_sigs_sorted, ..
+            } => {
                 // Should be 130 bytes (2 × 65)
                 assert_eq!(ecdsa_sigs_sorted.len(), 130);
             }
@@ -330,19 +349,27 @@ mod tests {
         collector.create_operation(op_id, OpType::Release, Some(signed1.digest), 1000);
 
         // Add in reverse order (3, 1, 2) — output should still be sorted by address
-        collector.add_ecdsa_signature(&op_id, &signed3.signature).unwrap();
-        collector.add_ecdsa_signature(&op_id, &signed1.signature).unwrap();
-        let result = collector.add_ecdsa_signature(&op_id, &signed2.signature).unwrap();
+        collector
+            .add_ecdsa_signature(&op_id, &signed3.signature)
+            .unwrap();
+        collector
+            .add_ecdsa_signature(&op_id, &signed1.signature)
+            .unwrap();
+        let result = collector
+            .add_ecdsa_signature(&op_id, &signed2.signature)
+            .unwrap();
 
         match result {
-            SignatureResult::ThresholdMet { ecdsa_sigs_sorted, .. } => {
+            SignatureResult::ThresholdMet {
+                ecdsa_sigs_sorted, ..
+            } => {
                 // 3 × 65 = 195 bytes
                 assert_eq!(ecdsa_sigs_sorted.len(), 195);
 
                 // Recover each signer and verify ascending order
                 let mut prev = [0u8; 20];
                 for i in 0..3 {
-                    let sig: [u8; 65] = ecdsa_sigs_sorted[i*65..(i+1)*65].try_into().unwrap();
+                    let sig: [u8; 65] = ecdsa_sigs_sorted[i * 65..(i + 1) * 65].try_into().unwrap();
                     let addr = recover_signer(&signed1.digest, &sig).unwrap();
                     assert!(addr > prev, "signatures not sorted at index {}", i);
                     prev = addr;
@@ -360,10 +387,14 @@ mod tests {
         let signed = s1.sign_release(&params).unwrap();
 
         collector.create_operation(op_id, OpType::Release, Some(signed.digest), 1000);
-        collector.add_ecdsa_signature(&op_id, &signed.signature).unwrap();
+        collector
+            .add_ecdsa_signature(&op_id, &signed.signature)
+            .unwrap();
 
         // Same signature again
-        let err = collector.add_ecdsa_signature(&op_id, &signed.signature).unwrap_err();
+        let err = collector
+            .add_ecdsa_signature(&op_id, &signed.signature)
+            .unwrap_err();
         assert!(matches!(err, CoordinatorError::DuplicateSignature));
     }
 
@@ -380,7 +411,9 @@ mod tests {
         let signed = rogue.sign_release(&params).unwrap();
 
         collector.create_operation(op_id, OpType::Release, Some(signed.digest), 1000);
-        let err = collector.add_ecdsa_signature(&op_id, &signed.signature).unwrap_err();
+        let err = collector
+            .add_ecdsa_signature(&op_id, &signed.signature)
+            .unwrap_err();
         assert!(matches!(err, CoordinatorError::UnknownGuardian));
     }
 
@@ -391,7 +424,9 @@ mod tests {
         let signed = s1.sign_release(&params).unwrap();
 
         let fake_id = [0xFF; 32];
-        let err = collector.add_ecdsa_signature(&fake_id, &signed.signature).unwrap_err();
+        let err = collector
+            .add_ecdsa_signature(&fake_id, &signed.signature)
+            .unwrap_err();
         assert!(matches!(err, CoordinatorError::OperationNotFound(_)));
     }
 
@@ -407,10 +442,17 @@ mod tests {
         let sig1 = [0xAA; 64];
         let sig2 = [0xBB; 64];
 
-        let result = collector.add_ed25519_signature(&op_id, &pk1, &sig1).unwrap();
-        assert!(matches!(result, SignatureResult::Pending { have: 1, need: 2 }));
+        let result = collector
+            .add_ed25519_signature(&op_id, &pk1, &sig1)
+            .unwrap();
+        assert!(matches!(
+            result,
+            SignatureResult::Pending { have: 1, need: 2 }
+        ));
 
-        let result = collector.add_ed25519_signature(&op_id, &pk2, &sig2).unwrap();
+        let result = collector
+            .add_ed25519_signature(&op_id, &pk2, &sig2)
+            .unwrap();
         assert!(matches!(result, SignatureResult::ThresholdMet { .. }));
     }
 
@@ -441,10 +483,14 @@ mod tests {
 
         assert!(!collector.is_complete(&op_id, &OpType::Release));
 
-        collector.add_ecdsa_signature(&op_id, &signed1.signature).unwrap();
+        collector
+            .add_ecdsa_signature(&op_id, &signed1.signature)
+            .unwrap();
         assert!(!collector.is_complete(&op_id, &OpType::Release));
 
-        collector.add_ecdsa_signature(&op_id, &signed2.signature).unwrap();
+        collector
+            .add_ecdsa_signature(&op_id, &signed2.signature)
+            .unwrap();
         assert!(collector.is_complete(&op_id, &OpType::Release));
     }
 

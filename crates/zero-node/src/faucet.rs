@@ -3,11 +3,11 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
+    Json, Router,
     extract::State,
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use parking_lot::{Mutex, RwLock};
 use serde::Deserialize;
@@ -91,7 +91,10 @@ async fn handle_drip(
     let nonce = {
         let node = state.node.read();
         let exec = node.executor().read();
-        exec.accounts().get_or_default(&state.keypair.public_key()).nonce + 1
+        exec.accounts()
+            .get_or_default(&state.keypair.public_key())
+            .nonce
+            + 1
     };
 
     // Build and sign transfer

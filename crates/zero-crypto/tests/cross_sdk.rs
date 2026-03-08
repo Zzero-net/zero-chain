@@ -7,10 +7,7 @@
 fn rust_pubkey_matches_pynacl() {
     // Known test vector: a fixed 32-byte secret
     let secret_hex = "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb";
-    let secret_bytes: [u8; 32] = hex::decode(secret_hex)
-        .unwrap()
-        .try_into()
-        .unwrap();
+    let secret_bytes: [u8; 32] = hex::decode(secret_hex).unwrap().try_into().unwrap();
 
     // Derive via ed25519-dalek (same as zero-crypto KeyPair::from_secret)
     let kp = zero_crypto::keypair::KeyPair::from_secret(&secret_bytes);
@@ -23,7 +20,11 @@ fn rust_pubkey_matches_pynacl() {
 
     // We can at least verify the key is deterministic
     let kp2 = zero_crypto::keypair::KeyPair::from_secret(&secret_bytes);
-    assert_eq!(kp.public_key(), kp2.public_key(), "Key derivation must be deterministic");
+    assert_eq!(
+        kp.public_key(),
+        kp2.public_key(),
+        "Key derivation must be deterministic"
+    );
 }
 
 #[test]

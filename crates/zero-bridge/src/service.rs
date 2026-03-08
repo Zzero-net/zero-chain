@@ -10,7 +10,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tracing::{error, info, warn};
 
 use ed25519_dalek::{Signer, SigningKey};
@@ -44,7 +44,9 @@ impl BridgeService {
     pub fn new(config: BridgeConfig, ecdsa_key: [u8; 32]) -> Result<Self, anyhow::Error> {
         // Use the first vault's chain info for the signer.
         // In production, each chain would have its own signer instance.
-        let first_vault = config.vaults.first()
+        let first_vault = config
+            .vaults
+            .first()
             .ok_or_else(|| anyhow::anyhow!("no vaults configured"))?;
         let vault_addr = BridgeConfig::vault_address_bytes(&first_vault.vault_address)?;
 
@@ -55,11 +57,15 @@ impl BridgeService {
         let ed_key_bytes = std::fs::read(&config.trinity.ed25519_key_file)
             .map_err(|e| anyhow::anyhow!("failed to read ed25519 key: {}", e))?;
         let ed_key: [u8; 32] = hex::decode(
-            ed_key_bytes.iter().copied().filter(|b| !b.is_ascii_whitespace()).collect::<Vec<u8>>()
+            ed_key_bytes
+                .iter()
+                .copied()
+                .filter(|b| !b.is_ascii_whitespace())
+                .collect::<Vec<u8>>(),
         )
-            .map_err(|e| anyhow::anyhow!("invalid ed25519 key hex: {}", e))?
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("ed25519 key must be 32 bytes"))?;
+        .map_err(|e| anyhow::anyhow!("invalid ed25519 key hex: {}", e))?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("ed25519 key must be 32 bytes"))?;
         let ed25519_signing_key = SigningKey::from_bytes(&ed_key);
         let ed25519_pubkey = ed25519_signing_key.verifying_key().to_bytes();
 
@@ -143,7 +149,9 @@ impl BridgeService {
             }
         }
 
-        let peer_endpoints: Vec<String> = self.config.peers
+        let peer_endpoints: Vec<String> = self
+            .config
+            .peers
             .iter()
             .map(|p| p.endpoint.clone())
             .collect();
@@ -222,11 +230,14 @@ impl BridgeService {
             return Ok(()); // No new confirmed blocks
         }
 
-        let logs = watcher.rpc.get_deposit_logs(
-            &watcher.config.vault_address,
-            watcher.last_block + 1,
-            safe_block,
-        ).await?;
+        let logs = watcher
+            .rpc
+            .get_deposit_logs(
+                &watcher.config.vault_address,
+                watcher.last_block + 1,
+                safe_block,
+            )
+            .await?;
 
         for log in &logs {
             match watcher.rpc.parse_deposit_log(log) {
@@ -254,12 +265,15 @@ impl BridgeService {
                     collector.create_operation(op_id, OpType::Mint, None, now);
 
                     // Store deposit details so submit_mint_to_zero() can build the POST body
-                    collector.set_mint_meta(&op_id, MintMeta {
-                        recipient: deposit.zero_recipient,
-                        amount: z_units,
-                        source_chain: deposit.source_chain.clone(),
-                        source_tx: source_tx_hex.clone(),
-                    });
+                    collector.set_mint_meta(
+                        &op_id,
+                        MintMeta {
+                            recipient: deposit.zero_recipient,
+                            amount: z_units,
+                            source_chain: deposit.source_chain.clone(),
+                            source_tx: source_tx_hex.clone(),
+                        },
+                    );
 
                     // Sign the mint attestation with our Ed25519 key
                     let mint_op = BridgeOp::Mint {
@@ -273,12 +287,12 @@ impl BridgeService {
                     let sig_bytes = signature.to_bytes();
 
                     // Add our own signature to the collector
-                    match collector.add_ed25519_signature(&op_id, &self.ed25519_pubkey, &sig_bytes) {
+                    match collector.add_ed25519_signature(&op_id, &self.ed25519_pubkey, &sig_bytes)
+                    {
                         Ok(_) => {
                             info!(
                                 op = hex::encode(op_id),
-                                z_units,
-                                "signed mint attestation (Ed25519)"
+                                z_units, "signed mint attestation (Ed25519)"
                             );
                         }
                         Err(e) => {
@@ -288,7 +302,9 @@ impl BridgeService {
                     drop(collector);
 
                     // Share our Ed25519 signature with peers
-                    let peer_endpoints: Vec<String> = self.config.peers
+                    let peer_endpoints: Vec<String> = self
+                        .config
+                        .peers
                         .iter()
                         .map(|p| p.endpoint.clone())
                         .collect();
@@ -299,9 +315,13 @@ impl BridgeService {
                             &op_id,
                             &self.ed25519_pubkey,
                             &sig_bytes,
-                        ).await {
+                        )
+                        .await
+                        {
                             Ok(()) => info!(peer = %endpoint, "shared Ed25519 mint attestation"),
-                            Err(e) => warn!(peer = %endpoint, err = %e, "failed to share mint attestation"),
+                            Err(e) => {
+                                warn!(peer = %endpoint, err = %e, "failed to share mint attestation")
+                            }
                         }
                     }
                 }
@@ -374,7 +394,10 @@ impl BridgeService {
                             }
                         }
                     } else {
-                        warn!(op = hex::encode(event.op_id), "release threshold met but no params stored");
+                        warn!(
+                            op = hex::encode(event.op_id),
+                            "release threshold met but no params stored"
+                        );
                     }
                 }
             }
@@ -403,7 +426,9 @@ impl BridgeService {
         state: &Arc<AppState>,
         peer_endpoints: &[String],
     ) -> Result<(), anyhow::Error> {
-        let signed = self.signer.sign_release(params)
+        let signed = self
+            .signer
+            .sign_release(params)
             .map_err(|e| anyhow::anyhow!("signing failed: {}", e))?;
 
         let now = std::time::SystemTime::now()
@@ -413,13 +438,9 @@ impl BridgeService {
 
         // Add to our own collector
         let mut collector = state.collector.lock().await;
-        collector.create_operation(
-            params.bridge_id,
-            OpType::Release,
-            Some(signed.digest),
-            now,
-        );
-        collector.add_ecdsa_signature(&params.bridge_id, &signed.signature)
+        collector.create_operation(params.bridge_id, OpType::Release, Some(signed.digest), now);
+        collector
+            .add_ecdsa_signature(&params.bridge_id, &signed.signature)
             .map_err(|e| anyhow::anyhow!("self-signature failed: {}", e))?;
         drop(collector);
 
@@ -430,7 +451,9 @@ impl BridgeService {
                 endpoint,
                 &params.bridge_id,
                 &signed.signature,
-            ).await {
+            )
+            .await
+            {
                 Ok(()) => info!(peer = %endpoint, "shared ECDSA signature"),
                 Err(e) => warn!(peer = %endpoint, err = %e, "failed to share signature"),
             }
@@ -448,18 +471,25 @@ impl BridgeService {
         state: &Arc<AppState>,
     ) -> Result<(), anyhow::Error> {
         let collector = state.collector.lock().await;
-        let pending = collector.get_operation(op_id)
+        let pending = collector
+            .get_operation(op_id)
             .ok_or_else(|| anyhow::anyhow!("operation not found for mint submission"))?;
 
-        let mint_meta = pending.mint_meta.as_ref()
+        let mint_meta = pending
+            .mint_meta
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("no mint metadata stored for operation"))?;
 
         // Build the JSON payload matching bridge_api.rs MintRequest
-        let attestations: Vec<serde_json::Value> = pending.ed25519_signatures.iter()
-            .map(|(pk, sig)| serde_json::json!({
-                "pubkey": hex::encode(pk),
-                "signature": hex::encode(sig),
-            }))
+        let attestations: Vec<serde_json::Value> = pending
+            .ed25519_signatures
+            .iter()
+            .map(|(pk, sig)| {
+                serde_json::json!({
+                    "pubkey": hex::encode(pk),
+                    "signature": hex::encode(sig),
+                })
+            })
             .collect();
 
         let payload = serde_json::json!({
@@ -481,7 +511,8 @@ impl BridgeService {
             "submitting mint to Zero chain"
         );
 
-        let resp = self.http_client
+        let resp = self
+            .http_client
             .post(&url)
             .json(&payload)
             .timeout(Duration::from_secs(10))
@@ -503,7 +534,11 @@ impl BridgeService {
             collector.remove_operation(op_id);
             Ok(())
         } else {
-            Err(anyhow::anyhow!("mint submission failed ({}): {}", status, body))
+            Err(anyhow::anyhow!(
+                "mint submission failed ({}): {}",
+                status,
+                body
+            ))
         }
     }
 
@@ -515,7 +550,10 @@ impl BridgeService {
             return Err(anyhow::anyhow!("trinity.index must be 0, 1, or 2"));
         }
         if self.config.peers.len() != 2 {
-            return Err(anyhow::anyhow!("expected exactly 2 peers, got {}", self.config.peers.len()));
+            return Err(anyhow::anyhow!(
+                "expected exactly 2 peers, got {}",
+                self.config.peers.len()
+            ));
         }
 
         let mut guardians = [[0u8; 20]; 3];
@@ -544,16 +582,25 @@ impl BridgeService {
     fn trinity_pubkeys_from_config(&self) -> Result<[[u8; 32]; 3], anyhow::Error> {
         let my_index = self.config.trinity.index;
         if self.config.peers.len() != 2 {
-            return Err(anyhow::anyhow!("expected exactly 2 peers, got {}", self.config.peers.len()));
+            return Err(anyhow::anyhow!(
+                "expected exactly 2 peers, got {}",
+                self.config.peers.len()
+            ));
         }
 
         // Derive our own Ed25519 pubkey from the key file
         let ed_key_bytes = std::fs::read(&self.config.trinity.ed25519_key_file)
             .map_err(|e| anyhow::anyhow!("failed to read ed25519 key: {}", e))?;
-        let ed_key: [u8; 32] = hex::decode(ed_key_bytes.iter().copied().filter(|b| !b.is_ascii_whitespace()).collect::<Vec<u8>>())
-            .map_err(|e| anyhow::anyhow!("invalid ed25519 key hex: {}", e))?
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("ed25519 key must be 32 bytes"))?;
+        let ed_key: [u8; 32] = hex::decode(
+            ed_key_bytes
+                .iter()
+                .copied()
+                .filter(|b| !b.is_ascii_whitespace())
+                .collect::<Vec<u8>>(),
+        )
+        .map_err(|e| anyhow::anyhow!("invalid ed25519 key hex: {}", e))?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("ed25519 key must be 32 bytes"))?;
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&ed_key);
         let my_pubkey = signing_key.verifying_key().to_bytes();
 

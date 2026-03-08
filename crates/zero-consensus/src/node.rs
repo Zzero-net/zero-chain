@@ -5,14 +5,17 @@ use parking_lot::RwLock;
 use tracing::{debug, info, warn};
 use zero_storage::TransferExecutor;
 use zero_types::{
-    block::Event,
-    params::{EPOCH_LENGTH, LATE_EVENT_THRESHOLD_MS, MAX_VALIDATORS, SLASH_DOWNTIME_BPS, SLASH_EQUIVOCATION_BPS, MIN_TRUST_SCORE},
     Hash, PubKey, TimestampMs, Transfer, ValidatorIndex,
+    block::Event,
+    params::{
+        EPOCH_LENGTH, LATE_EVENT_THRESHOLD_MS, MAX_VALIDATORS, MIN_TRUST_SCORE, SLASH_DOWNTIME_BPS,
+        SLASH_EQUIVOCATION_BPS,
+    },
 };
 
-use crate::{Committee, Dag, TrustScorer, ValidatorState};
 use crate::committee::ValidatorInfo;
 use crate::dag::InsertResult;
+use crate::{Committee, Dag, TrustScorer, ValidatorState};
 
 /// A consensus node that integrates the DAG, validator state, trust scoring,
 /// and transfer execution into a single pipeline.
@@ -127,7 +130,12 @@ impl Node {
     /// Receive an event from a peer validator.
     /// The caller must also provide the transfer batch for this event.
     /// Returns true if accepted, false if rejected (duplicate or equivocation).
-    pub fn receive_event(&mut self, event: Event, transfers: Vec<Transfer>, now_ms: TimestampMs) -> bool {
+    pub fn receive_event(
+        &mut self,
+        event: Event,
+        transfers: Vec<Transfer>,
+        now_ms: TimestampMs,
+    ) -> bool {
         debug!(
             round = event.round,
             author = event.author,
@@ -169,10 +177,10 @@ impl Node {
 
                 // Auto-slash equivocating validator's stake immediately
                 if let Some(info) = self.committee.validator(validator_idx) {
-                    let slashed = self.executor.write().slash_validator(
-                        &info.public_key,
-                        SLASH_EQUIVOCATION_BPS,
-                    );
+                    let slashed = self
+                        .executor
+                        .write()
+                        .slash_validator(&info.public_key, SLASH_EQUIVOCATION_BPS);
                     warn!(
                         validator = validator_idx,
                         slashed_amount = slashed,
@@ -206,9 +214,7 @@ impl Node {
                 .or_else(|| self.remote_batches.remove(&block_ref.digest));
 
             let Some(transfers) = batch else {
-                warn!(
-                    "Finalized event has no transfer batch — skipping"
-                );
+                warn!("Finalized event has no transfer batch — skipping");
                 continue;
             };
 
@@ -434,8 +440,7 @@ impl Node {
         for round in rounds {
             // Get the set of validators who produced events in this round
             let events = dag.events_in_round(round);
-            let participating: HashSet<ValidatorIndex> =
-                events.iter().map(|e| e.author).collect();
+            let participating: HashSet<ValidatorIndex> = events.iter().map(|e| e.author).collect();
 
             // Only penalize if at least half the committee participated
             // (avoids penalizing everyone during network startup or partition)
@@ -602,7 +607,8 @@ impl GossipHandler for NodeGossipHandler {
             .map(|e| {
                 // Try to get the batch from local or remote storage.
                 // Most catch-up events are heartbeats (empty batch), so empty is fine.
-                let batch = node.peek_remote_batch(&e.digest)
+                let batch = node
+                    .peek_remote_batch(&e.digest)
                     .or_else(|| node.validator().peek_batch(&e.digest))
                     .unwrap_or_default();
                 (e, batch)
@@ -762,7 +768,10 @@ mod tests {
             }
         }
 
-        assert_eq!(executor.read().accounts().balance(&receiver.public_key()), 200);
+        assert_eq!(
+            executor.read().accounts().balance(&receiver.public_key()),
+            200
+        );
     }
 
     #[test]
@@ -771,10 +780,7 @@ mod tests {
         let mut node = Node::new(0, committee, 10_000, 100);
 
         // Initial scores
-        assert_eq!(
-            node.trust_score(0),
-            zero_types::params::INITIAL_TRUST_SCORE
-        );
+        assert_eq!(node.trust_score(0), zero_types::params::INITIAL_TRUST_SCORE);
 
         // Penalize validator 1 for missing
         node.penalize_miss(1);
@@ -957,8 +963,8 @@ mod tests {
         assert!(accepted);
 
         // Validator 1 should have been penalized for lateness
-        let expected = zero_types::params::INITIAL_TRUST_SCORE
-            - zero_types::params::SCORE_PENALTY_LATE;
+        let expected =
+            zero_types::params::INITIAL_TRUST_SCORE - zero_types::params::SCORE_PENALTY_LATE;
         assert_eq!(node.trust_score(1), expected);
     }
 

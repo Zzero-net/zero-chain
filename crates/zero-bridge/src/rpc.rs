@@ -84,7 +84,8 @@ impl EthRpc {
             id: 1,
         };
 
-        let resp: JsonRpcResponse<String> = self.client
+        let resp: JsonRpcResponse<String> = self
+            .client
             .post(&self.rpc_url)
             .json(&req)
             .send()
@@ -93,7 +94,10 @@ impl EthRpc {
             .await?;
 
         if let Some(err) = resp.error {
-            return Err(RpcError::JsonRpc { code: err.code, message: err.message });
+            return Err(RpcError::JsonRpc {
+                code: err.code,
+                message: err.message,
+            });
         }
 
         let hex_str = resp.result.ok_or(RpcError::BadResponse)?;
@@ -121,7 +125,8 @@ impl EthRpc {
             id: 1,
         };
 
-        let resp: JsonRpcResponse<Vec<RawLog>> = self.client
+        let resp: JsonRpcResponse<Vec<RawLog>> = self
+            .client
             .post(&self.rpc_url)
             .json(&req)
             .send()
@@ -130,7 +135,10 @@ impl EthRpc {
             .await?;
 
         if let Some(err) = resp.error {
-            return Err(RpcError::JsonRpc { code: err.code, message: err.message });
+            return Err(RpcError::JsonRpc {
+                code: err.code,
+                message: err.message,
+            });
         }
 
         let logs = resp.result.ok_or(RpcError::BadResponse)?;
@@ -145,20 +153,14 @@ impl EthRpc {
         }
 
         let topics = parse_topics(&log.topics)?;
-        let data = parse_hex_bytes(&log.data)
-            .map_err(|e| format!("bad data hex: {}", e))?;
-        let block = parse_hex_u64(&log.block_number)
-            .map_err(|e| format!("bad block number: {}", e))?;
-        let tx_hash = parse_hex_bytes32(&log.transaction_hash)
-            .map_err(|e| format!("bad tx hash: {}", e))?;
+        let data = parse_hex_bytes(&log.data).map_err(|e| format!("bad data hex: {}", e))?;
+        let block =
+            parse_hex_u64(&log.block_number).map_err(|e| format!("bad block number: {}", e))?;
+        let tx_hash =
+            parse_hex_bytes32(&log.transaction_hash).map_err(|e| format!("bad tx hash: {}", e))?;
 
-        events::parse_deposit_log(
-            &topics,
-            &data,
-            &self.chain_name,
-            tx_hash,
-            block,
-        ).map_err(|e| format!("parse error: {}", e))
+        events::parse_deposit_log(&topics, &data, &self.chain_name, tx_hash, block)
+            .map_err(|e| format!("parse error: {}", e))
     }
 
     /// Fetch logs matching the Released event from a vault contract.
@@ -182,7 +184,8 @@ impl EthRpc {
             id: 1,
         };
 
-        let resp: JsonRpcResponse<Vec<RawLog>> = self.client
+        let resp: JsonRpcResponse<Vec<RawLog>> = self
+            .client
             .post(&self.rpc_url)
             .json(&req)
             .send()
@@ -191,7 +194,10 @@ impl EthRpc {
             .await?;
 
         if let Some(err) = resp.error {
-            return Err(RpcError::JsonRpc { code: err.code, message: err.message });
+            return Err(RpcError::JsonRpc {
+                code: err.code,
+                message: err.message,
+            });
         }
 
         let logs = resp.result.ok_or(RpcError::BadResponse)?;
@@ -206,20 +212,14 @@ impl EthRpc {
         }
 
         let topics = parse_topics(&log.topics)?;
-        let data = parse_hex_bytes(&log.data)
-            .map_err(|e| format!("bad data hex: {}", e))?;
-        let block = parse_hex_u64(&log.block_number)
-            .map_err(|e| format!("bad block number: {}", e))?;
-        let tx_hash = parse_hex_bytes32(&log.transaction_hash)
-            .map_err(|e| format!("bad tx hash: {}", e))?;
+        let data = parse_hex_bytes(&log.data).map_err(|e| format!("bad data hex: {}", e))?;
+        let block =
+            parse_hex_u64(&log.block_number).map_err(|e| format!("bad block number: {}", e))?;
+        let tx_hash =
+            parse_hex_bytes32(&log.transaction_hash).map_err(|e| format!("bad tx hash: {}", e))?;
 
-        events::parse_release_log(
-            &topics,
-            &data,
-            &self.chain_name,
-            tx_hash,
-            block,
-        ).map_err(|e| format!("parse error: {}", e))
+        events::parse_release_log(&topics, &data, &self.chain_name, tx_hash, block)
+            .map_err(|e| format!("parse error: {}", e))
     }
 
     /// Submit a pause() transaction to the vault contract.
@@ -304,7 +304,8 @@ impl EthRpc {
             id: 1,
         };
 
-        let resp: JsonRpcResponse<String> = self.client
+        let resp: JsonRpcResponse<String> = self
+            .client
             .post(&self.rpc_url)
             .json(&req)
             .send()
@@ -313,7 +314,10 @@ impl EthRpc {
             .await?;
 
         if let Some(err) = resp.error {
-            return Err(RpcError::JsonRpc { code: err.code, message: err.message });
+            return Err(RpcError::JsonRpc {
+                code: err.code,
+                message: err.message,
+            });
         }
 
         let tx_hash_hex = resp.result.ok_or(RpcError::BadResponse)?;
@@ -329,7 +333,8 @@ impl EthRpc {
             id: 1,
         };
 
-        let resp: JsonRpcResponse<String> = self.client
+        let resp: JsonRpcResponse<String> = self
+            .client
             .post(&self.rpc_url)
             .json(&req)
             .send()
@@ -338,7 +343,10 @@ impl EthRpc {
             .await?;
 
         if let Some(err) = resp.error {
-            return Err(RpcError::JsonRpc { code: err.code, message: err.message });
+            return Err(RpcError::JsonRpc {
+                code: err.code,
+                message: err.message,
+            });
         }
 
         let hex_str = resp.result.ok_or(RpcError::BadResponse)?;
@@ -354,7 +362,8 @@ impl EthRpc {
             id: 1,
         };
 
-        let resp: JsonRpcResponse<String> = self.client
+        let resp: JsonRpcResponse<String> = self
+            .client
             .post(&self.rpc_url)
             .json(&req)
             .send()
@@ -363,7 +372,10 @@ impl EthRpc {
             .await?;
 
         if let Some(err) = resp.error {
-            return Err(RpcError::JsonRpc { code: err.code, message: err.message });
+            return Err(RpcError::JsonRpc {
+                code: err.code,
+                message: err.message,
+            });
         }
 
         let hex_str = resp.result.ok_or(RpcError::BadResponse)?;
@@ -467,7 +479,8 @@ impl EthRpc {
             id: 1,
         };
 
-        let resp: JsonRpcResponse<String> = self.client
+        let resp: JsonRpcResponse<String> = self
+            .client
             .post(&self.rpc_url)
             .json(&req)
             .send()
@@ -476,7 +489,10 @@ impl EthRpc {
             .await?;
 
         if let Some(err) = resp.error {
-            return Err(RpcError::JsonRpc { code: err.code, message: err.message });
+            return Err(RpcError::JsonRpc {
+                code: err.code,
+                message: err.message,
+            });
         }
 
         let tx_hash_hex = resp.result.ok_or(RpcError::BadResponse)?;
@@ -517,7 +533,11 @@ impl Encodable for Eip1559Unsigned {
         self.value.encode(out);
         self.data.encode(out);
         // Empty access list
-        alloy_rlp::Header { list: true, payload_length: 0 }.encode(out);
+        alloy_rlp::Header {
+            list: true,
+            payload_length: 0,
+        }
+        .encode(out);
     }
 
     fn length(&self) -> usize {
@@ -572,7 +592,11 @@ impl Encodable for Eip1559Signed {
         self.value.encode(out);
         self.data.encode(out);
         // Empty access list
-        alloy_rlp::Header { list: true, payload_length: 0 }.encode(out);
+        alloy_rlp::Header {
+            list: true,
+            payload_length: 0,
+        }
+        .encode(out);
         // Signature: v as single byte, r and s as 32-byte big-endian with leading zeros stripped
         self.v.encode(out);
         encode_u256_bytes(&self.r, out);
@@ -714,8 +738,7 @@ fn parse_hex_bytes(s: &str) -> Result<Vec<u8>, String> {
 /// Parse a 0x-prefixed hex string to u64.
 fn parse_hex_u64(s: &str) -> Result<u64, RpcError> {
     let clean = s.strip_prefix("0x").unwrap_or(s);
-    u64::from_str_radix(clean, 16)
-        .map_err(|e| RpcError::HexDecode(e.to_string()))
+    u64::from_str_radix(clean, 16).map_err(|e| RpcError::HexDecode(e.to_string()))
 }
 
 #[cfg(test)]
@@ -813,7 +836,11 @@ mod tests {
         tx.encode(&mut buf);
 
         // First byte should be 0xc0+ or 0xf8+ (RLP list header)
-        assert!(buf[0] >= 0xc0, "expected RLP list header, got 0x{:02x}", buf[0]);
+        assert!(
+            buf[0] >= 0xc0,
+            "expected RLP list header, got 0x{:02x}",
+            buf[0]
+        );
     }
 
     #[test]
@@ -833,7 +860,13 @@ mod tests {
             gas_limit: 500_000,
             to: [0xAA; 20],
             value: 0,
-            data: encode_release_calldata(&[0xBB; 20], 1000, &[0xCC; 20], &[0xDD; 32], &[0xEE; 130]),
+            data: encode_release_calldata(
+                &[0xBB; 20],
+                1000,
+                &[0xCC; 20],
+                &[0xDD; 32],
+                &[0xEE; 130],
+            ),
             v: 1,
             r: [0x11; 32],
             s: [0x22; 32],
@@ -844,6 +877,10 @@ mod tests {
 
         // Should produce a valid RLP list
         assert!(buf[0] >= 0xc0);
-        assert!(buf.len() > 100, "signed tx should be >100 bytes, got {}", buf.len());
+        assert!(
+            buf.len() > 100,
+            "signed tx should be >100 bytes, got {}",
+            buf.len()
+        );
     }
 }

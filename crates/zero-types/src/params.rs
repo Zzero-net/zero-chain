@@ -54,9 +54,8 @@ pub const FEE_SHARE_BRIDGE_OPS_BPS: u32 = 3_500;
 pub const FEE_SHARE_PROTOCOL_BPS: u32 = 1_500;
 
 // Compile-time check: fee shares must sum to 10,000 BPS (100%).
-const _: () = assert!(
-    FEE_SHARE_VALIDATORS_BPS + FEE_SHARE_BRIDGE_OPS_BPS + FEE_SHARE_PROTOCOL_BPS == 10_000
-);
+const _: () =
+    assert!(FEE_SHARE_VALIDATORS_BPS + FEE_SHARE_BRIDGE_OPS_BPS + FEE_SHARE_PROTOCOL_BPS == 10_000);
 
 // === Rate Limiting ===
 

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Amount, Hash, Nonce, PubKey};
 
-pub use crate::params::{TRANSFER_FEE, MAX_TRANSFER_AMOUNT};
+pub use crate::params::{MAX_TRANSFER_AMOUNT, TRANSFER_FEE};
 
 /// Size of a transfer on the wire (without full signature).
 pub const WIRE_SIZE: usize = 100;

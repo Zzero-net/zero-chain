@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
-use crate::coordinator::{SignatureCollector, SignatureResult, OpType};
+use crate::coordinator::{OpType, SignatureCollector, SignatureResult};
 
 /// Shared state for the HTTP API.
 pub struct AppState {
@@ -112,22 +112,31 @@ async fn submit_ecdsa(
     let mut collector = state.collector.lock().await;
     match collector.add_ecdsa_signature(&op_id, &sig) {
         Ok(SignatureResult::Pending { have, need }) => {
-            info!(op = hex::encode(op_id), have, need, "ECDSA signature accepted, pending");
+            info!(
+                op = hex::encode(op_id),
+                have, need, "ECDSA signature accepted, pending"
+            );
             Ok(Json(SigResponse {
                 status: "pending".into(),
                 have: Some(have),
                 need: Some(need),
             }))
         }
-        Ok(SignatureResult::ThresholdMet { op_id, ecdsa_sigs_sorted }) => {
+        Ok(SignatureResult::ThresholdMet {
+            op_id,
+            ecdsa_sigs_sorted,
+        }) => {
             info!(op = hex::encode(op_id), "ECDSA threshold met!");
             // Notify the service loop
-            let _ = state.threshold_tx.send(ThresholdEvent {
-                op_id,
-                op_type: OpType::Release,
-                ecdsa_sigs_sorted,
-                release_params: None, // Filled by service when it initiates the release
-            }).await;
+            let _ = state
+                .threshold_tx
+                .send(ThresholdEvent {
+                    op_id,
+                    op_type: OpType::Release,
+                    ecdsa_sigs_sorted,
+                    release_params: None, // Filled by service when it initiates the release
+                })
+                .await;
             Ok(Json(SigResponse {
                 status: "threshold_met".into(),
                 have: None,
@@ -155,7 +164,10 @@ async fn submit_ed25519(
     let mut collector = state.collector.lock().await;
     match collector.add_ed25519_signature(&op_id, &pubkey, &sig) {
         Ok(SignatureResult::Pending { have, need }) => {
-            info!(op = hex::encode(op_id), have, need, "Ed25519 signature accepted, pending");
+            info!(
+                op = hex::encode(op_id),
+                have, need, "Ed25519 signature accepted, pending"
+            );
             Ok(Json(SigResponse {
                 status: "pending".into(),
                 have: Some(have),
@@ -164,12 +176,15 @@ async fn submit_ed25519(
         }
         Ok(SignatureResult::ThresholdMet { op_id, .. }) => {
             info!(op = hex::encode(op_id), "Ed25519 threshold met!");
-            let _ = state.threshold_tx.send(ThresholdEvent {
-                op_id,
-                op_type: OpType::Mint,
-                ecdsa_sigs_sorted: Vec::new(),
-                release_params: None,
-            }).await;
+            let _ = state
+                .threshold_tx
+                .send(ThresholdEvent {
+                    op_id,
+                    op_type: OpType::Mint,
+                    ecdsa_sigs_sorted: Vec::new(),
+                    release_params: None,
+                })
+                .await;
             Ok(Json(SigResponse {
                 status: "threshold_met".into(),
                 have: None,
@@ -231,7 +246,8 @@ pub async fn send_ecdsa_to_peer(
         signature: hex::encode(signature),
     };
 
-    let resp = client.post(&url)
+    let resp = client
+        .post(&url)
         .json(&req)
         .timeout(std::time::Duration::from_secs(5))
         .send()
@@ -242,7 +258,10 @@ pub async fn send_ecdsa_to_peer(
         Ok(())
     } else {
         let body = resp.text().await.unwrap_or_default();
-        Err(format!("peer {} rejected signature: {}", peer_endpoint, body))
+        Err(format!(
+            "peer {} rejected signature: {}",
+            peer_endpoint, body
+        ))
     }
 }
 
@@ -261,7 +280,8 @@ pub async fn send_ed25519_to_peer(
         signature: hex::encode(signature),
     };
 
-    let resp = client.post(&url)
+    let resp = client
+        .post(&url)
         .json(&req)
         .timeout(std::time::Duration::from_secs(5))
         .send()
@@ -272,6 +292,9 @@ pub async fn send_ed25519_to_peer(
         Ok(())
     } else {
         let body = resp.text().await.unwrap_or_default();
-        Err(format!("peer {} rejected signature: {}", peer_endpoint, body))
+        Err(format!(
+            "peer {} rejected signature: {}",
+            peer_endpoint, body
+        ))
     }
 }

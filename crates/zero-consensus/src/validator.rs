@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 use zero_types::{
-    block::{BlockRef, Event},
     Hash, Round, TimestampMs, Transfer, ValidatorIndex,
+    block::{BlockRef, Event},
 };
 
 use crate::{Committee, Dag};

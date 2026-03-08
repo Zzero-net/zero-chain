@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use zero_types::{params::MAX_TX_PER_ACCOUNT_PER_SEC, PubKey, TimestampMs};
+use zero_types::{PubKey, TimestampMs, params::MAX_TX_PER_ACCOUNT_PER_SEC};
 
 /// Per-account rate limiter using a sliding window.
 ///
