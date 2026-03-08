@@ -81,11 +81,11 @@ impl AccountStore {
 
     /// Burn Z tokens from an account (bridge-out). Like debit but no nonce change.
     pub fn burn(&self, key: &PubKey, amount: Amount) -> bool {
-        if let Some(mut entry) = self.accounts.get_mut(key) {
-            if entry.balance >= amount {
-                entry.balance -= amount;
-                return true;
-            }
+        if let Some(mut entry) = self.accounts.get_mut(key)
+            && entry.balance >= amount
+        {
+            entry.balance -= amount;
+            return true;
         }
         false
     }
