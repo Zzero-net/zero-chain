@@ -58,7 +58,8 @@ impl AccountStore {
     /// Returns the updated account. Caller must verify balance sufficiency first.
     pub fn debit(&self, key: &PubKey, amount: Amount, fee: Amount, new_head: Hash) -> Account {
         let mut entry = self.accounts.entry(*key).or_insert(Account::empty());
-        entry.balance = entry.balance.saturating_sub(amount + fee);
+        let total_cost = amount.checked_add(fee).expect("debit: amount + fee overflow");
+        entry.balance = entry.balance.checked_sub(total_cost).expect("debit: balance underflow");
         entry.nonce += 1;
         entry.head = new_head;
         entry.clone()

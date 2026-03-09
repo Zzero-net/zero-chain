@@ -31,10 +31,14 @@ pub const TRANSFER_FEE: Amount = 1;
 /// Maximum transfer amount: 2,500 units = 25 Z.
 pub const MAX_TRANSFER_AMOUNT: Amount = 2_500;
 
-/// Account creation fee: 10,000 units = 100 Z = $1.00.
+/// Bridge-out fee: 50 units = 0.5 Z = $0.005.
+/// Covers gas costs for the EVM release transaction.
+pub const BRIDGE_OUT_FEE: Amount = 50;
+
+/// Account creation fee: 500 units = 5 Z = $0.05.
 /// Charged to sender on first transfer to a new (zero-balance, zero-nonce) account.
-/// High enough to prevent dust account spam at scale.
-pub const ACCOUNT_CREATION_FEE: Amount = 10_000;
+/// Prevents dust account spam while keeping costs practical for microtransactions.
+pub const ACCOUNT_CREATION_FEE: Amount = 500;
 
 /// Minimum balance to send: 100 units = 1 Z.
 /// Accounts below this can only receive.
@@ -42,12 +46,12 @@ pub const MIN_SEND_BALANCE: Amount = 100;
 
 // === Fee Distribution (basis points, total must = 10,000) ===
 
-/// Validator share of fees: 50%.
-pub const FEE_SHARE_VALIDATORS_BPS: u32 = 5_000;
+/// Validator share of fees: 70%.
+pub const FEE_SHARE_VALIDATORS_BPS: u32 = 7_000;
 
-/// Bridge reserve share: 35%.
-/// Pays for vault contract gas on source/dest chains.
-pub const FEE_SHARE_BRIDGE_OPS_BPS: u32 = 3_500;
+/// Bridge reserve share: 15%.
+/// Supplemental reserve for vault gas (bridge-out fee covers most costs).
+pub const FEE_SHARE_BRIDGE_OPS_BPS: u32 = 1_500;
 
 /// Protocol reserve share: 15%.
 /// Emergency fund, future development.

@@ -229,7 +229,7 @@ impl Node {
                     Err(e) => {
                         // Transfer was valid at submission but may have become invalid
                         // (e.g., balance changed due to earlier tx in same batch)
-                        debug!(err = %e, "Skipped invalid transfer in finalized event");
+                        warn!(err = %e, "Skipped invalid transfer in finalized event");
                     }
                 }
             }
