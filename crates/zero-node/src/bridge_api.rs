@@ -1,13 +1,14 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::post};
+use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::{get, post}};
 use ed25519_dalek::{Signature as DalekSig, VerifyingKey};
 use parking_lot::RwLock;
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
 use zero_consensus::Node;
+use zero_network::server::BridgeOps;
 use zero_storage::BridgeOp;
 use zero_types::PubKey;
 
@@ -42,6 +43,8 @@ pub struct BridgeApiState {
     trinity_pubkeys: Vec<PubKey>,
     /// Required signature threshold (2 of 3).
     threshold: usize,
+    /// Shared bridge operations (with gRPC server).
+    bridge_ops: BridgeOps,
 }
 
 fn now_ms() -> u64 {
@@ -227,16 +230,57 @@ async fn handle_mint(
     }
 }
 
+/// GET /bridge/pending_releases — returns bridge-out operations waiting for release.
+/// The bridge service polls this to discover burns and initiate ECDSA signing.
+async fn handle_pending_releases(
+    State(state): State<BridgeApiState>,
+) -> impl IntoResponse {
+    let ops = state.bridge_ops.lock();
+    let pending: Vec<_> = ops
+        .values()
+        .filter(|op| op.direction == "out" && op.status == "pending_release")
+        .cloned()
+        .collect();
+    (StatusCode::OK, Json(serde_json::json!(pending)))
+}
+
+/// POST /bridge/release_complete — marks a release operation as completed.
+async fn handle_release_complete(
+    State(state): State<BridgeApiState>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let bridge_id = req.get("bridge_id").and_then(|v| v.as_str()).unwrap_or("");
+    if bridge_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "bridge_id required"})),
+        );
+    }
+    let mut ops = state.bridge_ops.lock();
+    if let Some(op) = ops.get_mut(bridge_id) {
+        op.status = "released".into();
+        info!(bridge_id, "bridge-out marked as released");
+        (StatusCode::OK, Json(serde_json::json!({"status": "released"})))
+    } else {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "operation not found"})),
+        )
+    }
+}
+
 /// Start the bridge mint API server. Returns a JoinHandle.
 pub fn start_bridge_api(
     node: Arc<RwLock<Node>>,
     trinity_pubkeys: Vec<PubKey>,
     listen: String,
+    bridge_ops: BridgeOps,
 ) -> tokio::task::JoinHandle<()> {
     let state = BridgeApiState {
         node,
         trinity_pubkeys,
         threshold: 2,
+        bridge_ops,
     };
 
     info!(
@@ -249,6 +293,8 @@ pub fn start_bridge_api(
     tokio::spawn(async move {
         let app = Router::new()
             .route("/bridge/mint", post(handle_mint))
+            .route("/bridge/pending_releases", get(handle_pending_releases))
+            .route("/bridge/release_complete", post(handle_release_complete))
             .with_state(state);
 
         let listener = match tokio::net::TcpListener::bind(&listen).await {

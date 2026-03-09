@@ -228,6 +228,10 @@ impl BridgeService {
         let mut poll = tokio::time::interval(poll_interval);
         poll.tick().await; // skip first immediate tick
 
+        // Release poll interval — check for pending burns every 2 seconds
+        let mut release_poll = tokio::time::interval(Duration::from_secs(2));
+        release_poll.tick().await;
+
         loop {
             tokio::select! {
                 // Poll chains for new deposits
@@ -250,6 +254,15 @@ impl BridgeService {
                     if any_advanced {
                         self.save_checkpoint(&watchers);
                     }
+                }
+
+                // Poll Zero chain node for pending release operations (burns)
+                // and sign any releases received from peers
+                _ = release_poll.tick() => {
+                    if let Err(e) = self.poll_pending_releases(&state, &peer_endpoints, &watchers).await {
+                        warn!(err = %e, "release poll error");
+                    }
+                    self.sign_pending_releases(&state, &peer_endpoints).await;
                 }
 
                 // Handle threshold-met events
@@ -557,6 +570,21 @@ impl BridgeService {
                                 "release transaction submitted"
                             );
                             state.stats.record_completion(&OpType::Release);
+
+                            // Notify the Zero chain node that release is complete
+                            let complete_url = format!(
+                                "{}/bridge/release_complete",
+                                self.config.zero_rpc
+                            );
+                            let _ = self
+                                .http_client
+                                .post(&complete_url)
+                                .json(&serde_json::json!({
+                                    "bridge_id": hex::encode(event.op_id),
+                                }))
+                                .timeout(Duration::from_secs(5))
+                                .send()
+                                .await;
                         }
                         Err(e) => {
                             error!(
@@ -595,6 +623,127 @@ impl BridgeService {
         }
     }
 
+    /// Poll the Zero chain node for pending release operations (bridge-out burns).
+    async fn poll_pending_releases(
+        &self,
+        state: &Arc<AppState>,
+        peer_endpoints: &[String],
+        watchers: &[ChainWatcher],
+    ) -> Result<(), anyhow::Error> {
+        let url = format!("{}/bridge/pending_releases", self.config.zero_rpc);
+        let resp = self
+            .http_client
+            .get(&url)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Ok(());
+        }
+
+        let ops: Vec<serde_json::Value> = resp.json().await?;
+        if ops.is_empty() {
+            return Ok(());
+        }
+
+        for op in &ops {
+            let bridge_id_hex = op["bridge_id"].as_str().unwrap_or("");
+            let dest_chain = op["source_chain"].as_str().unwrap_or(""); // stored as source_chain for bridge-out
+            let token_sym = op["token"].as_str().unwrap_or("USDC");
+            let z_amount = op["z_amount"].as_u64().unwrap_or(0) as u32;
+            let dest_address = op["dest_address"].as_str().unwrap_or("");
+
+            if bridge_id_hex.is_empty() || dest_chain.is_empty() || dest_address.is_empty() {
+                continue;
+            }
+
+            // Check if we already have this operation in our collector
+            {
+                let collector = state.collector.lock().await;
+                let op_id_bytes: [u8; 32] = match hex::decode(bridge_id_hex) {
+                    Ok(b) if b.len() == 32 => b.try_into().unwrap(),
+                    _ => continue,
+                };
+                if collector.get_operation(&op_id_bytes).is_some() {
+                    continue; // Already processing this one
+                }
+            }
+
+            // Find the vault config for this chain to get token address and decimals
+            let vault = watchers.iter().find(|w| w.config.chain == dest_chain);
+            let vault = match vault {
+                Some(w) => &w.config,
+                None => {
+                    warn!(chain = dest_chain, "no vault for release destination");
+                    continue;
+                }
+            };
+
+            // Parse the dest_address (Ethereum address)
+            let addr_clean = dest_address.strip_prefix("0x").unwrap_or(dest_address);
+            let recipient: [u8; 20] = match hex::decode(addr_clean) {
+                Ok(b) if b.len() == 20 => b.try_into().unwrap(),
+                _ => {
+                    warn!(addr = dest_address, "invalid dest_address");
+                    continue;
+                }
+            };
+
+            // Parse token address from vault config
+            let token_clean = vault.token_address.strip_prefix("0x").unwrap_or(&vault.token_address);
+            let token: [u8; 20] = match hex::decode(token_clean) {
+                Ok(b) if b.len() == 20 => b.try_into().unwrap(),
+                _ => {
+                    warn!(token = %vault.token_address, "invalid token address");
+                    continue;
+                }
+            };
+
+            // Convert Z units to raw token amount
+            // z_amount is in Z units (1 Z = 100 units), token has `token_decimals` decimals
+            // 10,000 Z units = 1 USDC = 10^6 raw
+            // raw = z_amount * 10^decimals / 10000
+            let raw_amount = (z_amount as u64)
+                * 10u64.pow(vault.token_decimals as u32)
+                / 10_000;
+
+            // Parse bridge_id to 32 bytes
+            let bridge_id: [u8; 32] = match hex::decode(bridge_id_hex) {
+                Ok(b) if b.len() == 32 => b.try_into().unwrap(),
+                _ => continue,
+            };
+
+            let params = ReleaseParams {
+                token,
+                amount: raw_amount,
+                recipient,
+                bridge_id,
+                dest_chain: dest_chain.to_string(),
+            };
+
+            info!(
+                bridge_id = bridge_id_hex,
+                chain = dest_chain,
+                token = token_sym,
+                z_amount,
+                raw_amount,
+                recipient = hex::encode(recipient),
+                "detected pending release — initiating ECDSA signing"
+            );
+
+            if let Err(e) = self.initiate_release(&params, state, peer_endpoints).await {
+                error!(
+                    bridge_id = bridge_id_hex,
+                    err = %e,
+                    "failed to initiate release"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     /// Sign a release request and create an operation in the coordinator.
     /// Called when a burn event is detected on the Zero chain.
     pub async fn initiate_release(
@@ -624,27 +773,72 @@ impl BridgeService {
         // Add to our own collector
         let mut collector = state.collector.lock().await;
         collector.create_operation(params.bridge_id, OpType::Release, Some(signed.digest), now);
+        collector.set_release_params(&params.bridge_id, params.clone());
         collector
             .add_ecdsa_signature(&params.bridge_id, &signed.signature)
             .map_err(|e| anyhow::anyhow!("self-signature failed: {}", e))?;
         drop(collector);
 
-        // Share with peers
+        // Share with peers (include release params + digest so they can auto-create the operation)
         for endpoint in peer_endpoints {
             match http::send_ecdsa_to_peer(
                 &self.http_client,
                 endpoint,
                 &params.bridge_id,
                 &signed.signature,
+                Some(params),
+                Some(&signed.digest),
             )
             .await
             {
-                Ok(()) => info!(peer = %endpoint, "shared ECDSA signature"),
-                Err(e) => warn!(peer = %endpoint, err = %e, "failed to share signature"),
+                Ok(()) => info!(peer = %endpoint, "shared ECDSA release signature + params"),
+                Err(e) => warn!(peer = %endpoint, err = %e, "failed to share release signature"),
             }
         }
 
         Ok(())
+    }
+
+    /// Check the coordinator for release operations that we haven't signed yet
+    /// (auto-created from peer params) and sign them.
+    async fn sign_pending_releases(
+        &self,
+        state: &Arc<AppState>,
+        peer_endpoints: &[String],
+    ) {
+        let unsigned = {
+            let collector = state.collector.lock().await;
+            collector.unsigned_releases(&self.ecdsa_address)
+        };
+
+        for op_id in unsigned {
+            // Get the release params
+            let params = {
+                let collector = state.collector.lock().await;
+                collector
+                    .get_operation(&op_id)
+                    .and_then(|op| op.release_params.clone())
+            };
+
+            let params = match params {
+                Some(p) => p,
+                None => continue,
+            };
+
+            info!(
+                op = hex::encode(op_id),
+                chain = %params.dest_chain,
+                "signing release from peer (auto-sign)"
+            );
+
+            if let Err(e) = self.initiate_release(&params, state, peer_endpoints).await {
+                warn!(
+                    op = hex::encode(op_id),
+                    err = %e,
+                    "failed to auto-sign release"
+                );
+            }
+        }
     }
 
     /// Submit a mint attestation to the Zero chain.

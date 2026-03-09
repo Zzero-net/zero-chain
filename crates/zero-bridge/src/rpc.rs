@@ -560,7 +560,9 @@ impl Encodable for Eip1559Unsigned {
         self.gas_limit.encode(out);
         self.to.encode(out);
         self.value.encode(out);
-        self.data.encode(out);
+        // Encode data as byte string (not list) — Vec<u8>::encode() uses the
+        // generic Vec<T> impl which produces an RLP list of individual bytes.
+        self.data.as_slice().encode(out);
         // Empty access list
         alloy_rlp::Header {
             list: true,
@@ -571,7 +573,7 @@ impl Encodable for Eip1559Unsigned {
 
     fn length(&self) -> usize {
         let payload = self.rlp_payload_len();
-        alloy_rlp::length_of_length(payload) + 1 + payload
+        alloy_rlp::length_of_length(payload) + payload
     }
 }
 
@@ -584,7 +586,7 @@ impl Eip1559Unsigned {
             + self.gas_limit.length()
             + self.to.length()
             + self.value.length()
-            + self.data.length()
+            + self.data.as_slice().length()
             + 1 // empty access list: 0xc0 (1 byte)
     }
 }
@@ -619,7 +621,7 @@ impl Encodable for Eip1559Signed {
         self.gas_limit.encode(out);
         self.to.encode(out);
         self.value.encode(out);
-        self.data.encode(out);
+        self.data.as_slice().encode(out);
         // Empty access list
         alloy_rlp::Header {
             list: true,
@@ -634,7 +636,7 @@ impl Encodable for Eip1559Signed {
 
     fn length(&self) -> usize {
         let payload = self.rlp_payload_len();
-        alloy_rlp::length_of_length(payload) + 1 + payload
+        alloy_rlp::length_of_length(payload) + payload
     }
 }
 
@@ -647,7 +649,7 @@ impl Eip1559Signed {
             + self.gas_limit.length()
             + self.to.length()
             + self.value.length()
-            + self.data.length()
+            + self.data.as_slice().length()
             + 1 // empty access list
             + self.v.length()
             + rlp_u256_len(&self.r)

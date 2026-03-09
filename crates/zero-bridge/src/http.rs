@@ -106,6 +106,24 @@ pub struct EcdsaSigRequest {
     pub op_id: String,
     /// Hex-encoded 65-byte ECDSA signature (r || s || v)
     pub signature: String,
+    /// Release parameters (included when sharing bridge-out signatures
+    /// so the peer can auto-create the operation and sign it too).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release_params: Option<ReleaseParamsJson>,
+    /// Hex-encoded EIP-712 digest (32 bytes) — included so the peer can
+    /// verify the signature without needing chain-specific domain separators.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
+}
+
+/// JSON-serializable release parameters for peer sharing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReleaseParamsJson {
+    pub token: String,
+    pub amount: u64,
+    pub recipient: String,
+    pub bridge_id: String,
+    pub dest_chain: String,
 }
 
 /// Request to submit an Ed25519 signature.
@@ -250,6 +268,44 @@ async fn submit_ecdsa(
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("bad signature: {e}")))?;
 
     let mut collector = state.collector.lock().await;
+
+    // For release operations: if the operation doesn't exist but release_params
+    // are provided, auto-create it so peers can participate in signing.
+    if collector.get_operation(&op_id).is_none() {
+        if let Some(ref params_json) = req.release_params {
+            let token = decode_bytes20(&params_json.token).unwrap_or([0u8; 20]);
+            let recipient = decode_bytes20(&params_json.recipient).unwrap_or([0u8; 20]);
+            let bridge_id = decode_bytes32(&params_json.bridge_id).unwrap_or(op_id);
+
+            let params = ReleaseParams {
+                token,
+                amount: params_json.amount,
+                recipient,
+                bridge_id,
+                dest_chain: params_json.dest_chain.clone(),
+            };
+
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            // Parse the EIP-712 digest from the peer so we can verify signatures.
+            let digest = req.digest.as_ref().and_then(|d| decode_bytes32(d).ok());
+
+            // Create the operation so the incoming signature can be added.
+            // The service's sign_pending_releases() will detect this and add our own sig.
+            collector.create_operation(op_id, OpType::Release, digest, now);
+            collector.set_release_params(&op_id, params);
+
+            info!(
+                op = hex::encode(op_id),
+                chain = %params_json.dest_chain,
+                "auto-created release operation from peer params"
+            );
+        }
+    }
+
     match collector.add_ecdsa_signature(&op_id, &sig) {
         Ok(SignatureResult::Pending { have, need }) => {
             info!(
@@ -267,6 +323,10 @@ async fn submit_ecdsa(
             ecdsa_sigs_sorted,
         }) => {
             info!(op = hex::encode(op_id), "ECDSA threshold met!");
+            // Extract release params from the pending operation
+            let release_params = collector
+                .get_operation(&op_id)
+                .and_then(|op| op.release_params.clone());
             // Notify the service loop
             let _ = state
                 .threshold_tx
@@ -274,7 +334,7 @@ async fn submit_ecdsa(
                     op_id,
                     op_type: OpType::Release,
                     ecdsa_sigs_sorted,
-                    release_params: None, // Filled by service when it initiates the release
+                    release_params,
                 })
                 .await;
             Ok(Json(SigResponse {
@@ -351,6 +411,17 @@ fn decode_bytes32(hex_str: &str) -> Result<[u8; 32], String> {
     Ok(out)
 }
 
+fn decode_bytes20(hex_str: &str) -> Result<[u8; 20], String> {
+    let clean = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+    let bytes = hex::decode(clean).map_err(|e| e.to_string())?;
+    if bytes.len() != 20 {
+        return Err(format!("expected 20 bytes, got {}", bytes.len()));
+    }
+    let mut out = [0u8; 20];
+    out.copy_from_slice(&bytes);
+    Ok(out)
+}
+
 fn decode_bytes64(hex_str: &str) -> Result<[u8; 64], String> {
     let clean = hex_str.strip_prefix("0x").unwrap_or(hex_str);
     let bytes = hex::decode(clean).map_err(|e| e.to_string())?;
@@ -379,11 +450,21 @@ pub async fn send_ecdsa_to_peer(
     peer_endpoint: &str,
     op_id: &[u8; 32],
     signature: &[u8; 65],
+    release_params: Option<&ReleaseParams>,
+    digest: Option<&[u8; 32]>,
 ) -> Result<(), String> {
     let url = format!("{}/signatures/ecdsa", peer_endpoint);
     let req = EcdsaSigRequest {
         op_id: hex::encode(op_id),
         signature: hex::encode(signature),
+        release_params: release_params.map(|p| ReleaseParamsJson {
+            token: hex::encode(p.token),
+            amount: p.amount,
+            recipient: hex::encode(p.recipient),
+            bridge_id: hex::encode(p.bridge_id),
+            dest_chain: p.dest_chain.clone(),
+        }),
+        digest: digest.map(hex::encode),
     };
 
     let resp = client

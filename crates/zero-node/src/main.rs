@@ -16,7 +16,7 @@ use zero_crypto::keyfile;
 use zero_network::{
     gossip::{GossipClient, GossipServer, GossipTlsConfig},
     proto::{zero_gossip_server::ZeroGossipServer, zero_service_server::ZeroServiceServer},
-    server::ZeroServer,
+    server::{BridgeOps, ZeroServer},
 };
 use zero_storage::snapshot;
 use zero_types::{GenesisConfig, NodeConfig, Transfer, block::Event};
@@ -161,11 +161,15 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Shared bridge operations store (used by gRPC server + bridge API)
+    let bridge_ops: BridgeOps = Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new()));
+
     // Client API server
     let api_server = ZeroServer::new(
         Arc::clone(&node),
         Arc::clone(node.read().executor()),
         config.peers.len() as u32,
+        Arc::clone(&bridge_ops),
     );
 
     // Load TLS config if specified
@@ -244,7 +248,12 @@ async fn main() -> anyhow::Result<()> {
             })
             .collect();
 
-        bridge_api::start_bridge_api(Arc::clone(&node), trinity_pubkeys, bridge_listen.clone());
+        bridge_api::start_bridge_api(
+            Arc::clone(&node),
+            trinity_pubkeys,
+            bridge_listen.clone(),
+            Arc::clone(&bridge_ops),
+        );
     }
 
     // Start periodic snapshot saving

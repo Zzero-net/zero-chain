@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use crate::eip712::{Eip712Error, recover_signer};
+use crate::eip712::{Eip712Error, ReleaseParams, recover_signer};
 
 /// Metadata for a pending mint operation (deposit details needed for POST submission).
 #[derive(Debug, Clone)]
@@ -35,6 +35,8 @@ pub struct PendingOperation {
     pub digest: Option<[u8; 32]>,
     /// Mint operation metadata (for mint operations)
     pub mint_meta: Option<MintMeta>,
+    /// Release parameters (for release operations)
+    pub release_params: Option<ReleaseParams>,
     /// Creation timestamp
     pub created_at: u64,
 }
@@ -105,15 +107,21 @@ impl SignatureCollector {
         digest: Option<[u8; 32]>,
         now: u64,
     ) {
-        self.pending.entry(op_id).or_insert(PendingOperation {
+        let entry = self.pending.entry(op_id).or_insert(PendingOperation {
             op_id,
             op_type,
             ecdsa_signatures: HashMap::new(),
             ed25519_signatures: HashMap::new(),
             digest,
             mint_meta: None,
+            release_params: None,
             created_at: now,
         });
+        // If the operation was already created (e.g. from a peer) without a
+        // digest, set it now so ECDSA signature verification can proceed.
+        if entry.digest.is_none() && digest.is_some() {
+            entry.digest = digest;
+        }
     }
 
     /// Add an ECDSA signature for a release operation.
@@ -229,9 +237,31 @@ impl SignatureCollector {
         }
     }
 
+    /// Store release parameters for a pending operation.
+    pub fn set_release_params(&mut self, op_id: &[u8; 32], params: ReleaseParams) {
+        if let Some(op) = self.pending.get_mut(op_id) {
+            op.release_params = Some(params);
+        }
+    }
+
     /// Get a reference to a pending operation by ID.
     pub fn get_operation(&self, op_id: &[u8; 32]) -> Option<&PendingOperation> {
         self.pending.get(op_id)
+    }
+
+    /// Find release operations that have release_params but haven't been signed
+    /// by the given guardian address yet. Used by the service to auto-sign
+    /// releases initiated by peers.
+    pub fn unsigned_releases(&self, our_address: &[u8; 20]) -> Vec<[u8; 32]> {
+        self.pending
+            .values()
+            .filter(|op| {
+                op.op_type == OpType::Release
+                    && op.release_params.is_some()
+                    && !op.ecdsa_signatures.contains_key(our_address)
+            })
+            .map(|op| op.op_id)
+            .collect()
     }
 
     /// Check if an operation has reached threshold.

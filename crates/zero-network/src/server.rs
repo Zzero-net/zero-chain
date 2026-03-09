@@ -49,26 +49,34 @@ impl IpRateLimiter {
 }
 
 /// Tracks bridge operations for status queries.
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-struct BridgeOperation {
-    bridge_id: String,
-    direction: String,
-    status: String,
-    source_chain: String,
-    token: String,
-    z_amount: u32,
-    attestations: u32,
-    required: u32,
-    created_at: u64,
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BridgeOperation {
+    pub bridge_id: String,
+    pub direction: String,
+    pub status: String,
+    pub source_chain: String,
+    pub token: String,
+    pub z_amount: u32,
+    pub attestations: u32,
+    pub required: u32,
+    pub created_at: u64,
+    /// For bridge-out: hex-encoded destination address on L2.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dest_address: Option<String>,
+    /// For bridge-out: hex-encoded sender Zero public key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_pubkey: Option<String>,
 }
+
+/// Shared bridge operations store.
+pub type BridgeOps = Arc<Mutex<HashMap<String, BridgeOperation>>>;
 
 pub struct ZeroServer {
     node: Arc<RwLock<Node>>,
     executor: Arc<RwLock<TransferExecutor>>,
     start_time: Instant,
     peer_count: u32,
-    bridge_ops: Mutex<HashMap<String, BridgeOperation>>,
+    bridge_ops: BridgeOps,
     /// Per-account rate limiter (100 tx/sec/account).
     account_limiter: Mutex<RateLimiter>,
     /// Per-IP rate limiter (1000 req/sec/IP).
@@ -87,13 +95,14 @@ impl ZeroServer {
         node: Arc<RwLock<Node>>,
         executor: Arc<RwLock<TransferExecutor>>,
         peer_count: u32,
+        bridge_ops: BridgeOps,
     ) -> Self {
         Self {
             node,
             executor,
             start_time: Instant::now(),
             peer_count,
-            bridge_ops: Mutex::new(HashMap::new()),
+            bridge_ops,
             account_limiter: Mutex::new(RateLimiter::new()),
             ip_limiter: Mutex::new(IpRateLimiter::new(1000)),
         }
@@ -315,6 +324,8 @@ impl ZeroService for ZeroServer {
             attestations: 0,
             required: 2,
             created_at: now_ms(),
+            dest_address: None,
+            sender_pubkey: None,
         };
         self.bridge_ops.lock().insert(bridge_id.clone(), op);
 
@@ -399,6 +410,8 @@ impl ZeroService for ZeroServer {
             attestations: 0,
             required: 2,
             created_at: now_ms(),
+            dest_address: Some(req.dest_address),
+            sender_pubkey: Some(hex::encode(sender)),
         };
         self.bridge_ops.lock().insert(bridge_id.clone(), op);
 
@@ -552,7 +565,7 @@ mod tests {
         let committee = test_committee_3();
         let node = Arc::new(RwLock::new(Node::new(0, committee, 10_000, 100)));
         let executor = Arc::new(RwLock::new(TransferExecutor::new(10_000)));
-        ZeroServer::new(node, executor, 2)
+        ZeroServer::new(node, executor, 2, Arc::new(Mutex::new(HashMap::new())))
     }
 
     fn make_server_with_funding(pubkey: &[u8; 32], amount: u32) -> ZeroServer {
@@ -560,7 +573,7 @@ mod tests {
         let node = Arc::new(RwLock::new(Node::new(0, committee, 10_000, 100)));
         let executor = Arc::new(RwLock::new(TransferExecutor::new(10_000)));
         executor.write().mint(pubkey, amount);
-        ZeroServer::new(node, executor, 2)
+        ZeroServer::new(node, executor, 2, Arc::new(Mutex::new(HashMap::new())))
     }
 
     #[tokio::test]
