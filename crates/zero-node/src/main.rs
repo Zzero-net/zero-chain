@@ -1,6 +1,7 @@
 mod bridge_api;
 mod faucet;
 
+use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -264,24 +265,37 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // Start periodic snapshot saving
+    // Start periodic snapshot saving + systemd watchdog
     let snap_node = Arc::clone(&node);
     let snap_path = snapshot_path.clone();
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
+        // Snapshot every 5 minutes
+        let mut snap_interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
+        // Watchdog every 15 seconds (WatchdogSec=60 means we must notify within 30s)
+        let mut wd_interval = tokio::time::interval(tokio::time::Duration::from_secs(15));
+        let wd_socket = std::env::var("NOTIFY_SOCKET").ok();
+
         loop {
-            interval.tick().await;
-            let n = snap_node.read();
-            let exec = n.executor().read();
-            if let Err(e) = snapshot::save_snapshot(
-                exec.accounts(),
-                exec.transfer_log().total_written(),
-                exec.fee_pool(),
-                exec.bridge_reserve(),
-                exec.protocol_reserve(),
-                &snap_path,
-            ) {
-                error!(err = %e, "Failed to save snapshot");
+            tokio::select! {
+                _ = snap_interval.tick() => {
+                    let n = snap_node.read();
+                    let exec = n.executor().read();
+                    if let Err(e) = snapshot::save_snapshot(
+                        exec.accounts(),
+                        exec.transfer_log().total_written(),
+                        exec.fee_pool(),
+                        exec.bridge_reserve(),
+                        exec.protocol_reserve(),
+                        &snap_path,
+                    ) {
+                        error!(err = %e, "Failed to save snapshot");
+                    }
+                }
+                _ = wd_interval.tick() => {
+                    if let Some(ref sock_path) = wd_socket {
+                        sd_notify(sock_path, "WATCHDOG=1");
+                    }
+                }
             }
         }
     });
@@ -304,6 +318,12 @@ async fn main() -> anyhow::Result<()> {
         }
         let _ = shutdown_tx_clone.send(true);
     });
+
+    // Notify systemd we're ready (Type=notify support)
+    if let Ok(sock_path) = std::env::var("NOTIFY_SOCKET") {
+        sd_notify(&sock_path, "READY=1");
+        info!("Notified systemd: READY");
+    }
 
     let mut builder = Server::builder();
     if let Some((cert, key, ca)) = tls_config {
@@ -342,4 +362,12 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Zero node stopped");
     Ok(())
+}
+
+/// Lightweight sd_notify: send a message to the systemd notification socket.
+fn sd_notify(socket_path: &str, msg: &str) {
+    let sock = UnixDatagram::unbound().ok();
+    if let Some(s) = sock {
+        let _ = s.send_to(msg.as_bytes(), socket_path);
+    }
 }
