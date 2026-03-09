@@ -74,6 +74,8 @@ pub enum CoordinatorError {
     OperationNotFound(String),
     #[error("signature verification failed: {0}")]
     SignatureVerificationFailed(#[from] Eip712Error),
+    #[error("operation expired (older than 1 hour)")]
+    OperationExpired,
 }
 
 /// Result of adding a signature — either still pending or threshold met.
@@ -90,6 +92,9 @@ pub enum SignatureResult {
 }
 
 impl SignatureCollector {
+    /// Maximum age of an operation before signatures are rejected (1 hour).
+    const MAX_OP_AGE_SECS: u64 = 3600;
+
     pub fn new(guardians: [[u8; 20]; 3], trinity_pubkeys: [[u8; 32]; 3]) -> Self {
         Self {
             guardians,
@@ -126,15 +131,22 @@ impl SignatureCollector {
 
     /// Add an ECDSA signature for a release operation.
     /// Verifies the signature recovers to a known guardian address.
+    /// Rejects signatures for operations older than MAX_OP_AGE_SECS.
     pub fn add_ecdsa_signature(
         &mut self,
         op_id: &[u8; 32],
         signature: &[u8; 65],
+        now: u64,
     ) -> Result<SignatureResult, CoordinatorError> {
         let op = self
             .pending
             .get_mut(op_id)
             .ok_or_else(|| CoordinatorError::OperationNotFound(hex::encode(op_id)))?;
+
+        // Reject stale operations (signature expiry)
+        if now.saturating_sub(op.created_at) > Self::MAX_OP_AGE_SECS {
+            return Err(CoordinatorError::OperationExpired);
+        }
 
         let digest = op
             .digest
@@ -170,16 +182,23 @@ impl SignatureCollector {
     }
 
     /// Add an Ed25519 signature for a mint attestation.
+    /// Rejects signatures for operations older than MAX_OP_AGE_SECS.
     pub fn add_ed25519_signature(
         &mut self,
         op_id: &[u8; 32],
         pubkey: &[u8; 32],
         signature: &[u8; 64],
+        now: u64,
     ) -> Result<SignatureResult, CoordinatorError> {
         let op = self
             .pending
             .get_mut(op_id)
             .ok_or_else(|| CoordinatorError::OperationNotFound(hex::encode(op_id)))?;
+
+        // Reject stale operations (signature expiry)
+        if now.saturating_sub(op.created_at) > Self::MAX_OP_AGE_SECS {
+            return Err(CoordinatorError::OperationExpired);
+        }
 
         // Verify pubkey is a known Trinity Validator
         if !self.trinity_pubkeys.contains(pubkey) {
@@ -346,7 +365,7 @@ mod tests {
 
         // First signature → pending
         let result = collector
-            .add_ecdsa_signature(&op_id, &signed1.signature)
+            .add_ecdsa_signature(&op_id, &signed1.signature, 1000)
             .unwrap();
         assert!(matches!(
             result,
@@ -355,7 +374,7 @@ mod tests {
 
         // Second signature → threshold met
         let result = collector
-            .add_ecdsa_signature(&op_id, &signed2.signature)
+            .add_ecdsa_signature(&op_id, &signed2.signature, 1000)
             .unwrap();
         match result {
             SignatureResult::ThresholdMet {
@@ -381,13 +400,13 @@ mod tests {
 
         // Add in reverse order (3, 1, 2) — output should still be sorted by address
         collector
-            .add_ecdsa_signature(&op_id, &signed3.signature)
+            .add_ecdsa_signature(&op_id, &signed3.signature, 1000)
             .unwrap();
         collector
-            .add_ecdsa_signature(&op_id, &signed1.signature)
+            .add_ecdsa_signature(&op_id, &signed1.signature, 1000)
             .unwrap();
         let result = collector
-            .add_ecdsa_signature(&op_id, &signed2.signature)
+            .add_ecdsa_signature(&op_id, &signed2.signature, 1000)
             .unwrap();
 
         match result {
@@ -419,12 +438,12 @@ mod tests {
 
         collector.create_operation(op_id, OpType::Release, Some(signed.digest), 1000);
         collector
-            .add_ecdsa_signature(&op_id, &signed.signature)
+            .add_ecdsa_signature(&op_id, &signed.signature, 1000)
             .unwrap();
 
         // Same signature again
         let err = collector
-            .add_ecdsa_signature(&op_id, &signed.signature)
+            .add_ecdsa_signature(&op_id, &signed.signature, 1000)
             .unwrap_err();
         assert!(matches!(err, CoordinatorError::DuplicateSignature));
     }
@@ -443,7 +462,7 @@ mod tests {
 
         collector.create_operation(op_id, OpType::Release, Some(signed.digest), 1000);
         let err = collector
-            .add_ecdsa_signature(&op_id, &signed.signature)
+            .add_ecdsa_signature(&op_id, &signed.signature, 1000)
             .unwrap_err();
         assert!(matches!(err, CoordinatorError::UnknownGuardian));
     }
@@ -456,7 +475,7 @@ mod tests {
 
         let fake_id = [0xFF; 32];
         let err = collector
-            .add_ecdsa_signature(&fake_id, &signed.signature)
+            .add_ecdsa_signature(&fake_id, &signed.signature, 1000)
             .unwrap_err();
         assert!(matches!(err, CoordinatorError::OperationNotFound(_)));
     }
@@ -474,7 +493,7 @@ mod tests {
         let sig2 = [0xBB; 64];
 
         let result = collector
-            .add_ed25519_signature(&op_id, &pk1, &sig1)
+            .add_ed25519_signature(&op_id, &pk1, &sig1, 1000)
             .unwrap();
         assert!(matches!(
             result,
@@ -482,7 +501,7 @@ mod tests {
         ));
 
         let result = collector
-            .add_ed25519_signature(&op_id, &pk2, &sig2)
+            .add_ed25519_signature(&op_id, &pk2, &sig2, 1000)
             .unwrap();
         assert!(matches!(result, SignatureResult::ThresholdMet { .. }));
     }
@@ -515,12 +534,12 @@ mod tests {
         assert!(!collector.is_complete(&op_id, &OpType::Release));
 
         collector
-            .add_ecdsa_signature(&op_id, &signed1.signature)
+            .add_ecdsa_signature(&op_id, &signed1.signature, 1000)
             .unwrap();
         assert!(!collector.is_complete(&op_id, &OpType::Release));
 
         collector
-            .add_ecdsa_signature(&op_id, &signed2.signature)
+            .add_ecdsa_signature(&op_id, &signed2.signature, 1000)
             .unwrap();
         assert!(collector.is_complete(&op_id, &OpType::Release));
     }

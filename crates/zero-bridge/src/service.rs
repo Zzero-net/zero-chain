@@ -370,7 +370,7 @@ impl BridgeService {
                     let sig_bytes = signature.to_bytes();
 
                     // Add our own signature to the collector
-                    match collector.add_ed25519_signature(&op_id, &self.ed25519_pubkey, &sig_bytes)
+                    match collector.add_ed25519_signature(&op_id, &self.ed25519_pubkey, &sig_bytes, now)
                     {
                         Ok(_) => {
                             info!(
@@ -790,7 +790,7 @@ impl BridgeService {
         collector.create_operation(params.bridge_id, OpType::Release, Some(signed.digest), now);
         collector.set_release_params(&params.bridge_id, params.clone());
         collector
-            .add_ecdsa_signature(&params.bridge_id, &signed.signature)
+            .add_ecdsa_signature(&params.bridge_id, &signed.signature, now)
             .map_err(|e| anyhow::anyhow!("self-signature failed: {}", e))?;
         drop(collector);
 

@@ -309,7 +309,11 @@ async fn submit_ecdsa(
         }
     }
 
-    match collector.add_ecdsa_signature(&op_id, &sig) {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    match collector.add_ecdsa_signature(&op_id, &sig, now) {
         Ok(SignatureResult::Pending { have, need }) => {
             info!(
                 op = hex::encode(op_id),
@@ -364,8 +368,12 @@ async fn submit_ed25519(
     let sig = decode_bytes64(&req.signature)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("bad signature: {e}")))?;
 
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     let mut collector = state.collector.lock().await;
-    match collector.add_ed25519_signature(&op_id, &pubkey, &sig) {
+    match collector.add_ed25519_signature(&op_id, &pubkey, &sig, now) {
         Ok(SignatureResult::Pending { have, need }) => {
             info!(
                 op = hex::encode(op_id),

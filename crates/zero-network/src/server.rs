@@ -12,6 +12,7 @@ use tracing::{info, warn};
 use zero_consensus::Node;
 use zero_storage::{BridgeOp, RateLimiter, TransferExecutor};
 use zero_types::Transfer;
+use zero_types::params::BRIDGE_OUT_FEE;
 
 use crate::proto::{zero_service_server::ZeroService, *};
 
@@ -193,6 +194,7 @@ impl ZeroService for ZeroServer {
         &self,
         request: Request<GetTransferRequest>,
     ) -> Result<Response<GetTransferResponse>, Status> {
+        self.check_ip_rate(&request)?;
         let req = request.into_inner();
         let hash: [u8; 32] = req
             .tx_hash
@@ -221,6 +223,7 @@ impl ZeroService for ZeroServer {
         &self,
         request: Request<GetHistoryRequest>,
     ) -> Result<Response<GetHistoryResponse>, Status> {
+        self.check_ip_rate(&request)?;
         let req = request.into_inner();
         let account: [u8; 32] = req
             .account
@@ -255,6 +258,7 @@ impl ZeroService for ZeroServer {
         &self,
         request: Request<GetBalanceRequest>,
     ) -> Result<Response<GetBalanceResponse>, Status> {
+        self.check_ip_rate(&request)?;
         let req = request.into_inner();
         let account: [u8; 32] = req
             .account
@@ -269,6 +273,7 @@ impl ZeroService for ZeroServer {
         &self,
         request: Request<GetAccountRequest>,
     ) -> Result<Response<GetAccountResponse>, Status> {
+        self.check_ip_rate(&request)?;
         let req = request.into_inner();
         let account: [u8; 32] = req
             .account
@@ -288,6 +293,7 @@ impl ZeroService for ZeroServer {
         &self,
         request: Request<BridgeInRequest>,
     ) -> Result<Response<BridgeInResponse>, Status> {
+        self.check_ip_rate(&request)?;
         let req = request.into_inner();
 
         let recipient: [u8; 32] = req
@@ -374,11 +380,18 @@ impl ZeroService for ZeroServer {
         vk.verify_strict(&signing_bytes, &sig)
             .map_err(|_| Status::unauthenticated("invalid burn signature"))?;
 
-        // Burn the Z from the sender's account
-        let burned = self.executor.read().accounts().burn(&sender, req.z_amount);
-        if !burned {
-            return Err(Status::failed_precondition("insufficient balance for burn"));
+        // Burn the Z from the sender's account (amount + bridge-out fee)
+        let total_burn = req.z_amount + BRIDGE_OUT_FEE;
+        {
+            let burned = self.executor.read().accounts().burn(&sender, total_burn);
+            if !burned {
+                return Err(Status::failed_precondition(
+                    format!("insufficient balance for burn (need {} + {} fee = {} units)", req.z_amount, BRIDGE_OUT_FEE, total_burn),
+                ));
+            }
         }
+        // Collect the bridge-out fee
+        self.executor.write().collect_fee(BRIDGE_OUT_FEE as u64);
 
         // Generate bridge_id
         let bridge_id = {
@@ -394,9 +407,10 @@ impl ZeroService for ZeroServer {
             chain = req.dest_chain,
             token = req.token,
             amount = req.z_amount,
+            fee = BRIDGE_OUT_FEE,
             sender = hex::encode(sender),
             bridge_id = bridge_id,
-            "Bridge-out: Z burned, pending release"
+            "Bridge-out: Z burned (+ fee), pending release"
         );
 
         // Record the pending release
@@ -418,6 +432,7 @@ impl ZeroService for ZeroServer {
         Ok(Response::new(BridgeOutResponse {
             bridge_id,
             status: "pending_release".into(),
+            fee: BRIDGE_OUT_FEE,
         }))
     }
 
@@ -425,6 +440,7 @@ impl ZeroService for ZeroServer {
         &self,
         request: Request<GetBridgeStatusRequest>,
     ) -> Result<Response<GetBridgeStatusResponse>, Status> {
+        self.check_ip_rate(&request)?;
         let req = request.into_inner();
         let ops = self.bridge_ops.lock();
 
@@ -447,6 +463,7 @@ impl ZeroService for ZeroServer {
         &self,
         request: Request<StreamTransfersRequest>,
     ) -> Result<Response<Self::StreamTransfersStream>, Status> {
+        self.check_ip_rate(&request)?;
         let req = request.into_inner();
         let from_seq = req.from_seq;
 
@@ -501,6 +518,7 @@ impl ZeroService for ZeroServer {
         &self,
         _request: Request<GetStatusRequest>,
     ) -> Result<Response<GetStatusResponse>, Status> {
+        // No rate limiting — lightweight read, polled by explorer infrastructure
         // Piggyback rate limiter cleanup on status checks (called every few seconds by explorer)
         let now = now_ms();
         self.account_limiter.lock().cleanup(now);
@@ -970,7 +988,7 @@ mod tests {
         assert_eq!(resp.status, "pending_release");
         assert!(!resp.bridge_id.is_empty());
 
-        // Verify balance was burned
+        // Verify balance was burned (amount + BRIDGE_OUT_FEE)
         let balance = server
             .get_balance(Request::new(GetBalanceRequest {
                 account: pk.to_vec(),
@@ -979,7 +997,7 @@ mod tests {
             .unwrap()
             .into_inner()
             .balance;
-        assert_eq!(balance, 49_000);
+        assert_eq!(balance, 50_000 - 1000 - BRIDGE_OUT_FEE); // 48,950
     }
 
     #[tokio::test]

@@ -170,6 +170,7 @@ message BridgeOutRequest {
 message BridgeOutResponse {
     string bridge_id = 1;
     string status = 2;         // "pending_burn", "pending_release", "released"
+    uint32 fee = 3;            // Bridge-out fee charged (in units)
 }
 
 message GetBridgeStatusRequest {
