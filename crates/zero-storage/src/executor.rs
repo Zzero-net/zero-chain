@@ -256,6 +256,11 @@ impl TransferExecutor {
         self.fee_pool
     }
 
+    /// Add a fee to the fee pool (e.g. bridge-out fee).
+    pub fn collect_fee(&mut self, amount: u64) {
+        self.fee_pool += amount;
+    }
+
     /// Track whether an account has fallen below the dust threshold.
     fn update_dust_tracking(&mut self, key: &PubKey, now_ms: TimestampMs) {
         let balance = self.accounts.balance(key);
@@ -422,6 +427,13 @@ impl TransferExecutor {
     /// Current accumulated protocol reserve (in units).
     pub fn protocol_reserve(&self) -> u64 {
         self.protocol_reserve
+    }
+
+    /// Restore reserves from a snapshot. Called during startup.
+    pub fn restore_reserves(&mut self, fee_pool: u64, bridge_reserve: u64, protocol_reserve: u64) {
+        self.fee_pool = fee_pool;
+        self.bridge_reserve = bridge_reserve;
+        self.protocol_reserve = protocol_reserve;
     }
 
     /// Withdraw from bridge reserve (for paying vault gas). Returns amount withdrawn.
@@ -711,9 +723,9 @@ mod tests {
 
         let dist = exec.distribute_fees(&validators);
 
-        // 50% validators, 35% bridge, 15% protocol (remainder)
-        let expected_validator = total_fee * 5_000 / 10_000;
-        let expected_bridge = total_fee * 3_500 / 10_000;
+        // 70% validators, 15% bridge, 15% protocol (remainder)
+        let expected_validator = total_fee * FEE_SHARE_VALIDATORS_BPS as u64 / 10_000;
+        let expected_bridge = total_fee * FEE_SHARE_BRIDGE_OPS_BPS as u64 / 10_000;
         let expected_protocol = total_fee - expected_validator - expected_bridge;
 
         assert_eq!(dist.total, total_fee);
@@ -843,17 +855,17 @@ mod tests {
         let sender = KeyPair::generate();
         let receiver = KeyPair::generate();
 
-        // Fund sender with exactly 19,900 units so the drain-to-dust math works:
-        // tx1: -2,400 - 10,001 (transfer fee + account creation) = 7,499
+        // Fund sender with exactly 10,400 units so the drain-to-dust math works:
+        // tx1: -2,400 - 501 (transfer fee + account creation) = 7,499
         // tx2-tx4: each -2,400 - 1 = -2,401 × 3 = 296
         // tx5: -190 - 1 = 105
         // tx6: -100 - 1 = 4 (dust!)
-        exec.mint(&sender.public_key(), 19_900);
+        exec.mint(&sender.public_key(), 10_400);
 
         let tx = make_signed_transfer(&sender, &receiver.public_key(), 2400, 1);
         let _ = exec.execute_with_time(&tx, 1000).unwrap();
 
-        // balance = 19,900 - 2,400 - 10,001 = 7,499. Not dust.
+        // balance = 10,400 - 2,400 - 501 = 7,499. Not dust.
         assert_eq!(exec.dust_candidate_count(), 0);
 
         // Drain sender close to dust via multiple transfers (max 2,500 each).

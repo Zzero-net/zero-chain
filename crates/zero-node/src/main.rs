@@ -122,17 +122,25 @@ async fn main() -> anyhow::Result<()> {
 
     if snapshot_path.exists() {
         match snapshot::load_snapshot(&snapshot_path) {
-            Ok((store, total_written)) => {
+            Ok(snap) => {
                 info!(
-                    accounts = store.len(),
-                    total_written, "Restored from snapshot"
+                    accounts = snap.store.len(),
+                    total_written = snap.total_written,
+                    fee_pool = snap.fee_pool,
+                    bridge_reserve = snap.bridge_reserve,
+                    protocol_reserve = snap.protocol_reserve,
+                    "Restored from snapshot"
                 );
                 // Replace the executor's account store with loaded data
                 let n = node.read();
                 let exec = n.executor().read();
-                for (pk, acct) in store.iter_accounts() {
+                for (pk, acct) in snap.store.iter_accounts() {
                     exec.accounts().set(pk, acct);
                 }
+                // Restore fee pool and reserves
+                drop(exec);
+                let mut exec_w = n.executor().write();
+                exec_w.restore_reserves(snap.fee_pool, snap.bridge_reserve, snap.protocol_reserve);
             }
             Err(e) => {
                 warn!(err = e, "Failed to load snapshot, starting fresh");
@@ -268,6 +276,9 @@ async fn main() -> anyhow::Result<()> {
             if let Err(e) = snapshot::save_snapshot(
                 exec.accounts(),
                 exec.transfer_log().total_written(),
+                exec.fee_pool(),
+                exec.bridge_reserve(),
+                exec.protocol_reserve(),
                 &snap_path,
             ) {
                 error!(err = %e, "Failed to save snapshot");
@@ -278,11 +289,19 @@ async fn main() -> anyhow::Result<()> {
     let addr = config.listen.parse()?;
     info!("Starting gRPC server on {}", addr);
 
-    // Handle ctrl-c for graceful shutdown
+    // Handle ctrl-c (SIGINT) and SIGTERM for graceful shutdown
     let shutdown_tx_clone = shutdown_tx.clone();
     tokio::spawn(async move {
-        tokio::signal::ctrl_c().await.ok();
-        info!("Received shutdown signal");
+        let mut sigterm =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                info!("Received SIGINT, shutting down");
+            }
+            _ = sigterm.recv() => {
+                info!("Received SIGTERM, shutting down");
+            }
+        }
         let _ = shutdown_tx_clone.send(true);
     });
 
@@ -308,12 +327,16 @@ async fn main() -> anyhow::Result<()> {
     {
         let n = node.read();
         let exec = n.executor().read();
-        if let Err(e) = snapshot::save_snapshot(
+        match snapshot::save_snapshot(
             exec.accounts(),
             exec.transfer_log().total_written(),
+            exec.fee_pool(),
+            exec.bridge_reserve(),
+            exec.protocol_reserve(),
             &snapshot_path,
         ) {
-            error!(err = %e, "Failed to save final snapshot");
+            Ok(_) => info!(path = %snapshot_path.display(), "Final snapshot saved (v2)"),
+            Err(e) => error!(err = %e, "Failed to save final snapshot"),
         }
     }
 
