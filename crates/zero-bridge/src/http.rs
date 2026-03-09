@@ -7,7 +7,7 @@
 //!   GET  /health              — detailed health check (JSON)
 //!   GET  /status              — pending operation count
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -85,6 +85,9 @@ pub struct AppState {
     pub threshold_tx: tokio::sync::mpsc::Sender<ThresholdEvent>,
     /// Runtime statistics for health monitoring.
     pub stats: BridgeStats,
+    /// Operations that have already been submitted on-chain (prevents duplicates
+    /// when the 3rd signature arrives after threshold was already met at 2-of-3).
+    pub submitted_ops: Mutex<HashSet<[u8; 32]>>,
 }
 
 use crate::eip712::ReleaseParams;

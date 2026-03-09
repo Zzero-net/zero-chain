@@ -145,6 +145,7 @@ impl BridgeService {
             collector: Mutex::new(collector),
             threshold_tx,
             stats: http::BridgeStats::new(),
+            submitted_ops: Mutex::new(std::collections::HashSet::new()),
         });
 
         // Start HTTP coordination server
@@ -513,6 +514,18 @@ impl BridgeService {
         watchers: &[ChainWatcher],
         state: &Arc<AppState>,
     ) {
+        // Deduplicate: skip if we already submitted this operation on-chain.
+        {
+            let submitted = state.submitted_ops.lock().await;
+            if submitted.contains(&event.op_id) {
+                info!(
+                    op = hex::encode(event.op_id),
+                    "skipping duplicate threshold event (already submitted)"
+                );
+                return;
+            }
+        }
+
         match event.op_type {
             OpType::Release => {
                 info!(
@@ -570,6 +583,7 @@ impl BridgeService {
                                 "release transaction submitted"
                             );
                             state.stats.record_completion(&OpType::Release);
+                            state.submitted_ops.lock().await.insert(event.op_id);
 
                             // Notify the Zero chain node that release is complete
                             let complete_url = format!(
@@ -610,6 +624,7 @@ impl BridgeService {
                 match self.submit_mint_to_zero(&event.op_id, state).await {
                     Ok(()) => {
                         state.stats.record_completion(&OpType::Mint);
+                        state.submitted_ops.lock().await.insert(event.op_id);
                     }
                     Err(e) => {
                         error!(
